@@ -1,0 +1,18 @@
+# Default ignored files
+.idea/
+.gradle/
+build/
+out/
+
+*.iml
+*.ipr
+*.iws
+ 
+*.log
+notes.txt
+
+# Ignore Gradle project-specific cache directory
+.gradle
+
+# Ignore Gradle build output directory
+build
