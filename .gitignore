@@ -16,3 +16,5 @@ notes.txt
 
 # Ignore Gradle build output directory
 build
+WebClientTester*
+confluent.properties
