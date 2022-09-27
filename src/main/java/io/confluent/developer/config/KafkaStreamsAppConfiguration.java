@@ -42,6 +42,7 @@ public class KafkaStreamsAppConfiguration {
         streamsConfigs.put(StreamsConfig.APPLICATION_ID_CONFIG, applicationId);
         streamsConfigs.put(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, cacheConfig);
         streamsConfigs.put(StreamsConfig.APPLICATION_SERVER_CONFIG, applicationServer);
+        streamsConfigs.put(StreamsConfig.NUM_STANDBY_REPLICAS_CONFIG, 1);
         Properties properties = new Properties();
         properties.putAll(streamsConfigs);
         properties.putAll(saslConfigs());

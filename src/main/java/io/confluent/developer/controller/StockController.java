@@ -118,11 +118,11 @@ public class StockController {
                             .enableStaleStores();
 
             ReadOnlyKeyValueStore<String, ValueAndTimestamp<StockTransactionAggregation>> readOnlyAggStore = kafkaStreams.store(storeParams);
-            StockTransactionAggregation aggregation = readOnlyAggStore.get(symbol).value();
-           
+            ValueAndTimestamp<StockTransactionAggregation> valueAndTimestamp = readOnlyAggStore.get(symbol);
+            
             QueryResponse<StockTransactionAggregation> queryResponse;
-            if (aggregation != null) {
-                queryResponse = QueryResponse.withResult(aggregation);
+            if (valueAndTimestamp != null) {
+                queryResponse = QueryResponse.withResult(valueAndTimestamp.value());
             } else {
                 queryResponse = QueryResponse.withError(String.format("Key [%s] not found", symbol));
             }
