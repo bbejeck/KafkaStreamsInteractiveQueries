@@ -6,9 +6,14 @@ import java.util.Set;
 
 public class QueryResponse <T> {
 
-    private final String errorMessage;
-    private final T result;
+    private  String errorMessage;
+    private  T result;
     private Map<String, Set<String>> executionInfo;
+
+    private String hostType = "NOT SET";
+
+    public QueryResponse() {
+    }
 
     private QueryResponse(String exception, T result) {
         this.errorMessage = exception;
@@ -28,6 +33,18 @@ public class QueryResponse <T> {
         return this;
     }
 
+    public QueryResponse<T> setHostType(String hostType) {
+        this.hostType = hostType;
+        return this;
+    }
+
+    public boolean hasError() {
+        return errorMessage != null;
+    }
+
+    public String getHostType() {
+        return hostType;
+    }
     public String getErrorMessage() {
         return errorMessage;
     }
@@ -38,5 +55,15 @@ public class QueryResponse <T> {
 
     public Map<String, Set<String>> getExecutionInfo() {
         return executionInfo;
+    }
+
+    @Override
+    public String toString() {
+        return "QueryResponse{" +
+                "errorMessage='" + errorMessage + '\'' +
+                ", result=" + result +
+                ", executionInfo=" + executionInfo +
+                ", hostType='" + hostType + '\'' +
+                '}';
     }
 }

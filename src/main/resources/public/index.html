@@ -4,11 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Title</title>
-    <script src="jquery-3.6.1.min.js"></script>
-    <link rel="stylesheet" href="jquery-ui.theme.css">
-    <script src="jquery.js"></script>
-    <script src="jquery-ui.min.js"></script>
-    <script src="jquery.color-2.2.0.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.1.min.js" integrity="sha256-o88AwQnZB+VDvE9tvIXrMQaPlFFSUTR+nldQm1LuPXQ=" crossorigin="anonymous"></script>
 
     <style>
         body {
@@ -45,25 +41,27 @@
     </style>
 
     <script type="text/javascript">
-
-        const symbols = ["AACO", "GOOG", "CFLT", "MSFT", "WKRP", "AAPL", "ZELK"];
-
+        const symbols = ["AACO", "GOOG", "CFLT", "MSFT", "AAPL", "ZELK"];
+        let idx = 0;
 
         function runIqTables() {
-            getRangeTableData("http://localhost:7076/streams-iq/v2/range")
-            updateKeyTableWithList("http://localhost:7076/streams-iq/v1/get/");
+            // Uncomment this to run range queries
+            //getRangeTableData("http://localhost:7076/streams-iq/range")
+            updateKeyTableWithList("http://localhost:7076/streams-iq/keyquery/");
         }
 
         function getRangeTableData(path) {
+            $('#rangeHeader').removeClass('updated')
             $.getJSON(path, function (response) {
                 updateRangeTable(response, $('#rangeTable'))
-                $('#rangeHeader').animate({color: 'red'}, 500).animate({color: '#CCCCCC'}, 500)
+                $('#rangeHeader').addClass('updated')
             });
         }
 
         function updateKeyTableWithList(path) {
-            let randIdx = Math.round(Math.random() * (symbols.length-1))
-            let value = symbols[randIdx];
+            let value = symbols[idx];
+            idx += 1;
+            if (idx >= symbols.length) idx = 0;
             $.getJSON(path + value, function (response) {
                 updateKeyTable(response, $('#keyTable'))
             })
@@ -84,22 +82,29 @@
 
 
         function updateKeyTable(response, table) {
+            let errDiv = $('#errorDiv')
+               errDiv.hide()
             if (!response.errorMessage) {
                 $('.keyRow').removeClass('updated');
                 let key = response.result.symbol;
                 let row = $("tr[id='" + key + "_key']");
                 if (row.length) {
-                    $("td[id='" + key + "_td_key']").text(parseFloat(response.result.sells).toFixed(2))
+                    $("td[id='" + key + "_td_key']").text(parseFloat(response.result.sells + response.result.buys).toFixed(2))
+                    $("td[id='" + key + "_status']").text(response.hostType)
                 } else {
-                    row = $('<tr id="' + key + '_key" class="keyRow">');
-                    row.append($('<td>' + key + '</td><td id="' + key + '_td_key">' + parseFloat(response.result.sells).toFixed(2) + '</td>'));
+                    row = $('<tr id="' + key + '_key" class="keyRow">')
+                    row.append($('<td>' + key + '</td><td id="' + key + '_td_key">' + parseFloat(response.result.sells + response.result.buys).toFixed(2) + '</td>'))
+                    row.append($('<td id="' + key + '_status">' + response.hostType + '</td>'))
                     table.append(row);
                 }
                 row.addClass('updated')
+            } else {
+                $('#errorMessage').text(response.errorMessage)
+                 errDiv.show()
             }
         }
 
-        setInterval(runIqTables, 5000);
+        setInterval(runIqTables, 1000);
     </script>
 
 </head>
@@ -112,8 +117,9 @@
     <h2 id="errorMessage"></h2>
 </div>
 
+<!--   Uncomment to observe range queries in action
 <div id="rangeDiv">
-    <h3 id="rangeHeader">Total Dollar Volume (v2 Range Query)</h3>
+    <h3 id="rangeHeader">Total Dollar Volume (Range Query)</h3>
     <table id="rangeTable">
         <tr>
             <th>Symbol</th>
@@ -121,15 +127,16 @@
         </tr>
     </table>
 </div>
-
 <br/>
+-->
 
 <div id="keyDiv">
-    <h3 id="keyHeader">Sales Transactions by Symbol (v1 Key Query)</h3>
+    <h3 id="keyHeader">Total Transactions by Symbol (Key Query)</h3>
     <table id="keyTable">
         <tr>
             <th>Stock Symbol</th>
-            <th>Total Sales Volume</th>
+            <th>Total Volume</th>
+            <th>Host Information</th>
         </tr>
     </table>
 </div>

@@ -1,24 +1,21 @@
 package io.confluent.developer.controller;
 
 import io.confluent.developer.model.StockTransactionAggregation;
-import io.confluent.developer.query.MultiKeyQuery;
 import io.confluent.developer.query.QueryResponse;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.KeyQueryMetadata;
-import org.apache.kafka.streams.StoreQueryParameters;
 import org.apache.kafka.streams.StreamsMetadata;
 import org.apache.kafka.streams.query.KeyQuery;
+import org.apache.kafka.streams.query.Query;
 import org.apache.kafka.streams.query.QueryResult;
 import org.apache.kafka.streams.query.RangeQuery;
 import org.apache.kafka.streams.query.StateQueryRequest;
 import org.apache.kafka.streams.query.StateQueryResult;
 import org.apache.kafka.streams.state.HostInfo;
 import org.apache.kafka.streams.state.KeyValueIterator;
-import org.apache.kafka.streams.state.QueryableStoreTypes;
-import org.apache.kafka.streams.state.ReadOnlyKeyValueStore;
 import org.apache.kafka.streams.state.ValueAndTimestamp;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,11 +32,9 @@ import javax.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -59,9 +54,14 @@ public class StockController {
     private final RestTemplate restTemplate;
 
     private static final int MAX_RETRIES = 3;
-    private final Time time = Time.SYSTEM;
+    private static final Time time = Time.SYSTEM;
 
-    private static final String IQ_URL = "http://{host}:{port}/streams-iq{path}";
+    private static final String BASE_IQ_URL = "http://{host}:{port}/streams-iq";
+
+    private enum HostStatus {
+        ACTIVE,
+        STANDBY
+    }
 
     @Autowired
     public StockController(final KafkaStreams kafkaStreams,
@@ -76,196 +76,112 @@ public class StockController {
         thisHostInfo = new HostInfo(parts[0], Integer.parseInt(parts[1]));
     }
 
-    @GetMapping(value = "/v2/range")
-    public QueryResponse<List<StockTransactionAggregation>> getAggregationRangeV2(@RequestParam(required = false) String lower,
-                                                                                  @RequestParam(required = false) String upper) {
+    @GetMapping(value = "/range")
+    public QueryResponse<List<StockTransactionAggregation>> getAggregationRange(@RequestParam(required = false) String lower,
+                                                                                @RequestParam(required = false) String upper) {
 
         Collection<StreamsMetadata> streamsMetadata = kafkaStreams.streamsMetadataForStore(storeName);
         List<StockTransactionAggregation> aggregations = new ArrayList<>();
-        String path = String.format("/range?lower=%s&upper=%s", lower, upper);
-
-        RangeQuery<String, ValueAndTimestamp<StockTransactionAggregation>> rangeQuery = createRangeQuery(lower, upper);
+        List<StreamsMetadata> standbyHostMetadata = streamsMetadata.stream().filter(metadata -> metadata.standbyStateStoreNames()
+                .contains(storeName))
+                .collect(Collectors.toList());
+        
         streamsMetadata.forEach(metadata -> {
             if (metadata.hostInfo().equals(thisHostInfo)) {
-                StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> result =
-                        kafkaStreams.query(StateQueryRequest.inStore(storeName).withQuery(rangeQuery));
-                aggregations.addAll(extractStateQueryResults(result));
+                QueryResponse<List<StockTransactionAggregation>> localResults = getAggregationRangeInternal(lower, upper);
+                aggregations.addAll(localResults.getResult());
             } else {
                 String host = metadata.host();
                 int port = metadata.port();
-                QueryResponse<List<StockTransactionAggregation>> otherResponse = restTemplate.getForObject(IQ_URL, QueryResponse.class, host, port, path);
-                if (otherResponse != null) {
+                String path = "/internal" + createRangePath(lower, upper);
+                QueryResponse<List<StockTransactionAggregation>> otherResponse = doRemoteRequest(host, port, path);
+                if(! otherResponse.hasError()) {
                     aggregations.addAll(otherResponse.getResult());
+                } else {
+                    List<StreamsMetadata> standbyCandidates = standbyHostMetadata.stream().filter(standby -> standby.standbyTopicPartitions().equals(metadata.topicPartitions())).collect(Collectors.toList());
+                    Optional<QueryResponse<List<StockTransactionAggregation>>> standbyResponse = standbyCandidates.stream()
+                            .map(standbyMetadata -> {
+                                QueryResponse<List<StockTransactionAggregation>> response = doRemoteRequest(standbyMetadata.host(), standbyMetadata.port(), path);
+                                return response;
+                            })
+                            .filter(resp -> resp != null && !resp.hasError())
+                            .findFirst();
+                    standbyResponse.ifPresent(listQueryResponse -> aggregations.addAll(standbyResponse.get().getResult()));
                 }
             }
         });
+        return QueryResponse.withResult(aggregations);
+    }
+
+    @GetMapping(value = "/internal/range")
+    public QueryResponse<List<StockTransactionAggregation>> getAggregationRangeInternal(@RequestParam(required = false) String lower,
+                                                                                        @RequestParam(required = false) String upper) {
+        RangeQuery<String, ValueAndTimestamp<StockTransactionAggregation>> rangeQuery = createRangeQuery(lower, upper);
+
+        StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> result =
+                kafkaStreams.query(StateQueryRequest.inStore(storeName).withQuery(rangeQuery));
+        List<StockTransactionAggregation> aggregations = new ArrayList<>(extractStateQueryResults(result));
 
         return QueryResponse.withResult(aggregations);
     }
 
-    @GetMapping(value = "/v1/get/{symbol}")
-    public QueryResponse<StockTransactionAggregation> getAggregation(@PathVariable String symbol) {
-        KeyQueryMetadata keyMetadata = getKeyMetadata(symbol, Serdes.String().serializer());
-        if (keyMetadata == null) {
-            return QueryResponse.withError(String.format("ERROR: Unable to get key metadata after %d retries", MAX_RETRIES));
-        }
-
-        if (keyMetadata.activeHost().equals(thisHostInfo)) {
-            StoreQueryParameters<ReadOnlyKeyValueStore<String, ValueAndTimestamp<StockTransactionAggregation>>> storeParams =
-                    StoreQueryParameters.<ReadOnlyKeyValueStore<String, ValueAndTimestamp<StockTransactionAggregation>>>
-                                    fromNameAndType(storeName, QueryableStoreTypes.timestampedKeyValueStore())
-                            .withPartition(keyMetadata.partition())
-                            .enableStaleStores();
-
-            ReadOnlyKeyValueStore<String, ValueAndTimestamp<StockTransactionAggregation>> readOnlyAggStore = kafkaStreams.store(storeParams);
-            ValueAndTimestamp<StockTransactionAggregation> valueAndTimestamp = readOnlyAggStore.get(symbol);
-            
-            QueryResponse<StockTransactionAggregation> queryResponse;
-            if (valueAndTimestamp != null) {
-                queryResponse = QueryResponse.withResult(valueAndTimestamp.value());
-            } else {
-                queryResponse = QueryResponse.withError(String.format("Key [%s] not found", symbol));
-            }
-            return queryResponse;
-        } else {
-            String host = keyMetadata.activeHost().host();
-            int port = keyMetadata.activeHost().port();
-            String path = String.format("/v1/get/%s", symbol);
-
-            QueryResponse<StockTransactionAggregation> remoteResponse;
-            try {
-                remoteResponse = restTemplate.getForObject(IQ_URL, QueryResponse.class, host, port, path);
-            } catch (RestClientException exception) {
-                remoteResponse = QueryResponse.withError(exception.getMessage());
-            }
-            return remoteResponse;
-        }
-    }
-
-    @GetMapping(value = "/v1/range")
-    public QueryResponse<List<StockTransactionAggregation>> getAggregationRangeV1(@RequestParam(required = false) String lower,
-                                                                                  @RequestParam(required = false) String upper) {
-        Collection<StreamsMetadata> streamsMetadata = kafkaStreams.streamsMetadataForStore(storeName);
-        if (streamsMetadata.isEmpty()) {
-            return QueryResponse.withError(String.format("ERROR: No metadata for store [%s], retry or confirm store name", storeName));
-        }
-        String lowerParam = lower != null && lower.isEmpty() ? null : lower;
-        String upperParam = upper != null && upper.isEmpty() ? null : upper;
-        String path = String.format("/v1/range/?lower=%s&upper=%s", lower, upper);
-        List<StockTransactionAggregation> aggregations = new ArrayList<>();
-        streamsMetadata.forEach(metadata -> {
-            if (metadata.hostInfo().equals(thisHostInfo)) {
-                StoreQueryParameters<ReadOnlyKeyValueStore<String, ValueAndTimestamp<StockTransactionAggregation>>> storeParams =
-                        StoreQueryParameters.<ReadOnlyKeyValueStore<String, ValueAndTimestamp<StockTransactionAggregation>>>
-                                        fromNameAndType(storeName, QueryableStoreTypes.timestampedKeyValueStore())
-                                .enableStaleStores();
-                ReadOnlyKeyValueStore<String, ValueAndTimestamp<StockTransactionAggregation>> readOnlyAggStore = kafkaStreams.store(storeParams);
-                try (KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>> iterator = readOnlyAggStore.range(lowerParam, upperParam)) {
-                    while (iterator.hasNext()) {
-                        aggregations.add(iterator.next().value.value());
-                    }
-                }
-            } else {
-                String host = metadata.host();
-                int port = metadata.port();
-                QueryResponse<List<StockTransactionAggregation>> otherResponse;
-                try {
-                    otherResponse = restTemplate.getForObject(IQ_URL, QueryResponse.class, host, port, path);
-                } catch (RestClientException exception) {
-                    otherResponse = QueryResponse.withError(String.format("Exception [%s] querying host [%s]", exception.getMessage(), host));
-                }
-                aggregations.addAll(otherResponse.getResult());
-            }
-        });
-
-        return QueryResponse.withResult(aggregations);
-    }
-
-    @GetMapping(value = "/v2/keyquery/{symbol}")
+    @GetMapping(value = "/keyquery/{symbol}")
     public QueryResponse<StockTransactionAggregation> getAggregationKeyQuery(@PathVariable String symbol) {
         KeyQueryMetadata keyMetadata = getKeyMetadata(symbol, Serdes.String().serializer());
         if (keyMetadata == null) {
             return QueryResponse.withError(String.format("ERROR: Unable to get key metadata after %d retries", MAX_RETRIES));
         }
+        HostInfo activeHost = keyMetadata.activeHost();
+        Set<HostInfo> standbyHosts = keyMetadata.standbyHosts();
         KeyQuery<String, ValueAndTimestamp<StockTransactionAggregation>> keyQuery = KeyQuery.withKey(symbol);
-        if (keyMetadata.activeHost().equals(thisHostInfo)) {
-            Set<Integer> partitionSet = Collections.singleton(keyMetadata.partition());
-            StateQueryResult<ValueAndTimestamp<StockTransactionAggregation>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
-                    .withQuery(keyQuery)
-                    .withPartitions(partitionSet));
-            QueryResult<ValueAndTimestamp<StockTransactionAggregation>> queryResult = keyQueryResult.getOnlyPartitionResult();
-            return QueryResponse.withResult(queryResult.getResult().value());
-        } else {
-            String path = String.format("/v2/keyquery/%s", symbol);
-            String host = keyMetadata.activeHost().host();
-            int port = keyMetadata.activeHost().port();
-            return restTemplate.getForObject(IQ_URL, QueryResponse.class, host, port, path);
+        QueryResponse<StockTransactionAggregation> queryResponse = doKeyQuery(activeHost, keyQuery, keyMetadata, symbol, HostStatus.ACTIVE);
+        if (queryResponse.hasError() && !standbyHosts.isEmpty()) {
+            Optional<QueryResponse<StockTransactionAggregation>> standbyResponse = standbyHosts.stream()
+                    .map(standbyHost -> doKeyQuery(standbyHost, keyQuery, keyMetadata, symbol, HostStatus.STANDBY))
+                    .filter(resp -> resp != null && !resp.hasError())
+                    .findFirst();
+            if (standbyResponse.isPresent()) {
+                queryResponse = standbyResponse.get();
+            }
         }
+        return queryResponse;
     }
 
-    @GetMapping(value = "/v2/multikey/{symbols}")
-    public QueryResponse<Map<String, Long>> getAggregationsMultiKey(@PathVariable String[] symbols) {
-        Map<HostInfo, Set<String>> hostInfoWithKeys = new HashMap<>();
-        Map<HostInfo, Set<HostInfo>> activeToStandby = new HashMap<>();
-        Map<String, Long> resultMap = new HashMap<>();
 
-        for (String symbol : symbols) {
-            KeyQueryMetadata keyMetadata = getKeyMetadata(symbol, Serdes.String().serializer());
-            if (keyMetadata == null) {
-                return QueryResponse.withError(String.format("ERROR: Unable to get key metadata after %d retries", MAX_RETRIES));
+    private QueryResponse<StockTransactionAggregation> doKeyQuery(final HostInfo targetHostInfo,
+                                                                  final Query<ValueAndTimestamp<StockTransactionAggregation>> query,
+                                                                  final KeyQueryMetadata keyMetadata,
+                                                                  final String symbol,
+                                                                  final HostStatus hostStatus) {
+        QueryResponse<StockTransactionAggregation> queryResponse;
+        if (targetHostInfo.equals(thisHostInfo)) {
+            Set<Integer> partitionSet = Collections.singleton(keyMetadata.partition());
+            StateQueryResult<ValueAndTimestamp<StockTransactionAggregation>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+                    .withQuery(query)
+                    .withPartitions(partitionSet));
+            QueryResult<ValueAndTimestamp<StockTransactionAggregation>> queryResult = keyQueryResult.getOnlyPartitionResult();
+            queryResponse = QueryResponse.withResult(queryResult.getResult().value());
+        } else {
+            String path = "/keyquery/" + symbol;
+            String host = targetHostInfo.host();
+            int port = targetHostInfo.port();
+            queryResponse = doRemoteRequest(host, port, path);
+        }
+        return queryResponse.setHostType(hostStatus.name() + "-" + targetHostInfo.host() + ":" + targetHostInfo.port());
+    }
+
+
+    private <V> QueryResponse<V> doRemoteRequest(String host, int port, String path) {
+        QueryResponse<V> remoteResponse;
+        try {
+            remoteResponse = restTemplate.getForObject(BASE_IQ_URL + path, QueryResponse.class, host, port);
+            if (remoteResponse == null) {
+                remoteResponse = QueryResponse.withError("Remote call returned null response");
             }
-            hostInfoWithKeys.computeIfAbsent(keyMetadata.activeHost(), k -> new HashSet<>()).add(symbol);
-            Set<HostInfo> standbyHosts = keyMetadata.standbyHosts();
-            activeToStandby.computeIfAbsent(keyMetadata.activeHost(), k -> standbyHosts).addAll(standbyHosts);
+        } catch (RestClientException exception) {
+            remoteResponse = QueryResponse.withError(exception.getMessage());
         }
-        Map<String, Set<String>> perHostExecutionInfo = new HashMap<>();
-        Set<String> localKeys = hostInfoWithKeys.remove(this.thisHostInfo);
-        if (localKeys != null) {
-            MultiKeyQuery<String, Long> multiKeyQuery = MultiKeyQuery.<String, Long>withKeys(localKeys).keySerde(Serdes.String()).valueSerde(Serdes.Long());
-
-            System.out.printf("Issuing a Multi key query for the local instance %n");
-            StateQueryResult<KeyValueIterator<String, Long>> result = kafkaStreams.query(StateQueryRequest.inStore(storeName)
-                    .withQuery(multiKeyQuery)
-                    .enableExecutionInfo());
-            List<KeyValueIterator<String, Long>> iqResults = new ArrayList<>();
-            Map<Integer, QueryResult<KeyValueIterator<String, Long>>> allPartitionsResult = result.getPartitionResults();
-            allPartitionsResult.forEach((key, queryResult) -> {
-                List<String> filtered = queryResult.getExecutionInfo().stream().filter(info -> info.contains("MultiKeyQuery")).collect(Collectors.toList());
-                perHostExecutionInfo.computeIfAbsent(thisHostInfo.host() + "->partition_" + key, (k -> new LinkedHashSet<>())).addAll(filtered);
-                iqResults.add(queryResult.getResult());
-            });
-            iqResults.forEach(iter -> iter.forEachRemaining(kv -> {
-                System.out.printf("Query result key[%s] value[%s]%n", kv.key, kv.value);
-                resultMap.put(kv.key, kv.value);
-            }));
-
-        }
-
-        if (!hostInfoWithKeys.isEmpty()) {
-            hostInfoWithKeys.forEach((activeHostInfo, keyList) -> {
-                List<HostInfo> activeWithStandby = new ArrayList<>();
-                activeWithStandby.add(activeHostInfo);
-                activeWithStandby.addAll(activeToStandby.get(activeHostInfo));
-                Map<String, Long> otherResults = new HashMap<>();
-                RestClientException restClientException = null;
-                for (HostInfo hostInfo : activeWithStandby) {
-                    try {
-                        otherResults = restTemplate.getForObject(IQ_URL, Map.class, hostInfo.host(), hostInfo.port(), String.join(",", keyList));
-                        if (!otherResults.isEmpty()) {
-                            resultMap.putAll(otherResults);
-                            break;
-                        }
-                    } catch (RestClientException e) {
-                        restClientException = e;
-                    }
-                }
-                if (restClientException != null && resultMap.isEmpty() && otherResults.isEmpty()) {
-                    throw new IllegalStateException("Could not reach either Active or Standby host for other Kafka Streams instance", restClientException);
-                }
-            });
-        }
-        return QueryResponse.withResult(resultMap).addExecutionInfo(perHostExecutionInfo);
-
+        return remoteResponse;
     }
 
     private <K> KeyQueryMetadata getKeyMetadata(K key, Serializer<K> keySerializer) {
@@ -290,6 +206,18 @@ public class StockController {
             return RangeQuery.withUpperBound(upper);
         } else {
             return RangeQuery.withRange(lower, upper);
+        }
+    }
+
+    private String createRangePath(String lower, String upper) {
+        if (isBlank(lower) && isBlank(upper)) {
+            return "/range";
+        } else if (!isBlank(lower) && isBlank(upper)) {
+            return "/range?lower=" + lower;
+        } else if (isBlank(lower) && !isBlank(upper)) {
+            return "/range?upper=" + upper;
+        } else {
+            return "/range?lower=" + lower + "&upper=" + upper;
         }
     }
 
