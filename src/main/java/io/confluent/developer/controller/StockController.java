@@ -2,6 +2,7 @@ package io.confluent.developer.controller;
 
 import io.confluent.developer.model.StockTransactionAggregation;
 import io.confluent.developer.query.QueryResponse;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.common.utils.Time;
@@ -9,6 +10,7 @@ import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.KeyQueryMetadata;
 import org.apache.kafka.streams.StreamsMetadata;
 import org.apache.kafka.streams.query.KeyQuery;
+import org.apache.kafka.streams.query.PositionBound;
 import org.apache.kafka.streams.query.Query;
 import org.apache.kafka.streams.query.QueryResult;
 import org.apache.kafka.streams.query.RangeQuery;
@@ -32,8 +34,10 @@ import javax.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -82,47 +86,75 @@ public class StockController {
 
         Collection<StreamsMetadata> streamsMetadata = kafkaStreams.streamsMetadataForStore(storeName);
         List<StockTransactionAggregation> aggregations = new ArrayList<>();
-        List<StreamsMetadata> standbyHostMetadata = streamsMetadata.stream().filter(metadata -> metadata.standbyStateStoreNames()
-                .contains(storeName))
-                .collect(Collectors.toList());
-        
-        streamsMetadata.forEach(metadata -> {
-            if (metadata.hostInfo().equals(thisHostInfo)) {
-                QueryResponse<List<StockTransactionAggregation>> localResults = getAggregationRangeInternal(lower, upper);
-                aggregations.addAll(localResults.getResult());
+
+        streamsMetadata.forEach(streamsClient -> {
+            Set<Integer> partitions = getPartitions(streamsClient.topicPartitions());
+            QueryResponse<List<StockTransactionAggregation>> queryResponse = doRangeQuery(streamsClient.hostInfo(),
+                    Optional.of(partitions),
+                    Optional.empty(),
+                    lower,
+                    upper);
+            if (!queryResponse.hasError()) {
+                aggregations.addAll(queryResponse.getResult());
             } else {
-                String host = metadata.host();
-                int port = metadata.port();
-                String path = "/internal" + createRangePath(lower, upper);
-                QueryResponse<List<StockTransactionAggregation>> otherResponse = doRemoteRequest(host, port, path);
-                if(! otherResponse.hasError()) {
-                    aggregations.addAll(otherResponse.getResult());
-                } else {
-                    List<StreamsMetadata> standbyCandidates = standbyHostMetadata.stream().filter(standby -> standby.standbyTopicPartitions().equals(metadata.topicPartitions())).collect(Collectors.toList());
-                    Optional<QueryResponse<List<StockTransactionAggregation>>> standbyResponse = standbyCandidates.stream()
-                            .map(standbyMetadata -> {
-                                QueryResponse<List<StockTransactionAggregation>> response = doRemoteRequest(standbyMetadata.host(), standbyMetadata.port(), path);
-                                return response;
-                            })
-                            .filter(resp -> resp != null && !resp.hasError())
-                            .findFirst();
-                    standbyResponse.ifPresent(listQueryResponse -> aggregations.addAll(standbyResponse.get().getResult()));
-                }
+                List<StreamsMetadata> standbys = getStandbyClients(streamsClient, streamsMetadata);
+                Optional<QueryResponse<List<StockTransactionAggregation>>> standbyResponse = standbys.stream().map(standby -> {
+                            Set<TopicPartition> standbyTopicPartitions = getStandbyTopicPartitions(streamsClient, standby);
+                            Set<Integer> standbyPartitions = getPartitions(standbyTopicPartitions);
+                            return doRangeQuery(standby.hostInfo(), Optional.of(standbyPartitions), Optional.empty(), lower, upper);
+                        }).filter(Objects::nonNull)
+                        .findFirst();
+                standbyResponse.ifPresent(listQueryResponse -> aggregations.addAll(listQueryResponse.getResult()));
             }
+
         });
         return QueryResponse.withResult(aggregations);
     }
 
+
     @GetMapping(value = "/internal/range")
     public QueryResponse<List<StockTransactionAggregation>> getAggregationRangeInternal(@RequestParam(required = false) String lower,
-                                                                                        @RequestParam(required = false) String upper) {
+                                                                                        @RequestParam(required = false) String upper,
+                                                                                        @RequestParam(required = false) List<Integer> partitions) {
+        Optional<Set<Integer>> optionalPartitions;
+        if (partitions != null && !partitions.isEmpty()) {
+            optionalPartitions = Optional.of(new HashSet<>(partitions));
+        } else {
+            optionalPartitions = Optional.empty();
+        }
+
+        return doRangeQuery(thisHostInfo, optionalPartitions, Optional.empty(), lower, upper);
+
+    }
+
+    private QueryResponse<List<StockTransactionAggregation>> doRangeQuery(final HostInfo targetHostInfo,
+                                                                          final Optional<Set<Integer>> partitions,
+                                                                          final Optional<PositionBound> positionBound,
+                                                                          final String lower,
+                                                                          final String upper) {
+
         RangeQuery<String, ValueAndTimestamp<StockTransactionAggregation>> rangeQuery = createRangeQuery(lower, upper);
+        StateQueryRequest<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> queryRequest = StateQueryRequest.inStore(storeName).withQuery(rangeQuery);
+        if (partitions.isPresent() && !partitions.get().isEmpty()) {
+            queryRequest = queryRequest.withPartitions(partitions.get());
+        }
+        if (positionBound.isPresent()) {
+            queryRequest = queryRequest.withPositionBound(positionBound.get());
+        }
 
-        StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> result =
-                kafkaStreams.query(StateQueryRequest.inStore(storeName).withQuery(rangeQuery));
-        List<StockTransactionAggregation> aggregations = new ArrayList<>(extractStateQueryResults(result));
-
-        return QueryResponse.withResult(aggregations);
+        QueryResponse<List<StockTransactionAggregation>> queryResponse;
+        List<StockTransactionAggregation> aggregations = new ArrayList<>();
+        if (targetHostInfo.equals(thisHostInfo)) {
+            StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> result = kafkaStreams.query(queryRequest);
+            aggregations.addAll(extractStateQueryResults(result));
+            queryResponse = QueryResponse.withResult(aggregations);
+        } else {
+            String path = createRangeRequestPath(lower, upper, partitions);
+            String host = targetHostInfo.host();
+            int port = targetHostInfo.port();
+            queryResponse = doRemoteRequest(host, port, path);
+        }
+        return queryResponse;
     }
 
     @GetMapping(value = "/keyquery/{symbol}")
@@ -197,6 +229,24 @@ public class StockController {
         return keyMetadata;
     }
 
+
+    private Set<Integer> getPartitions(Set<TopicPartition> topicPartitions) {
+        return topicPartitions.stream().map(TopicPartition::partition).collect(Collectors.toSet());
+    }
+
+    private List<StreamsMetadata> getStandbyClients(final StreamsMetadata currentClient, Collection<StreamsMetadata> candidates) {
+        return candidates.stream().filter(streamClient -> !streamClient.equals(currentClient) &&
+                        streamClient.standbyStateStoreNames().contains(storeName) &&
+                        !getStandbyTopicPartitions(currentClient, streamClient).isEmpty())
+                .collect(Collectors.toList());
+    }
+
+    private Set<TopicPartition> getStandbyTopicPartitions(StreamsMetadata currentClient, StreamsMetadata standbyCandidate) {
+        Set<TopicPartition> temp = new HashSet<>(currentClient.topicPartitions());
+        temp.retainAll(standbyCandidate.standbyTopicPartitions());
+        return temp;
+    }
+
     private RangeQuery<String, ValueAndTimestamp<StockTransactionAggregation>> createRangeQuery(String lower, String upper) {
         if (isBlank(lower) && isBlank(upper)) {
             return RangeQuery.withNoBounds();
@@ -209,16 +259,25 @@ public class StockController {
         }
     }
 
-    private String createRangePath(String lower, String upper) {
+    private String createRangeRequestPath(String lower, String upper, Optional<Set<Integer>> optionalPartitions) {
+        String path;
         if (isBlank(lower) && isBlank(upper)) {
-            return "/range";
+            path = "/range";
         } else if (!isBlank(lower) && isBlank(upper)) {
-            return "/range?lower=" + lower;
+            path = "/range?lower=" + lower;
         } else if (isBlank(lower) && !isBlank(upper)) {
-            return "/range?upper=" + upper;
+            path = "/range?upper=" + upper;
         } else {
-            return "/range?lower=" + lower + "&upper=" + upper;
+            path = "/range?lower=" + lower + "&upper=" + upper;
         }
+        if (optionalPartitions.isPresent()) {
+            if(path.indexOf('?') > -1) {
+                path = path + "&partitions=" + optionalPartitions.get().stream().map(Object::toString).collect(Collectors.joining(","));
+            } else {
+                path = path + "?partitions=" + optionalPartitions.get().stream().map(Object::toString).collect(Collectors.joining(","));
+            }
+        }
+        return "/internal" + path;
     }
 
     private boolean isBlank(String str) {
