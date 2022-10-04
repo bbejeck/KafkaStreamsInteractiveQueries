@@ -271,11 +271,8 @@ public class StockController {
             path = "/range?lower=" + lower + "&upper=" + upper;
         }
         if (optionalPartitions.isPresent()) {
-            if(path.indexOf('?') > -1) {
-                path = path + "&partitions=" + optionalPartitions.get().stream().map(Object::toString).collect(Collectors.joining(","));
-            } else {
-                path = path + "?partitions=" + optionalPartitions.get().stream().map(Object::toString).collect(Collectors.joining(","));
-            }
+            path = path + (path.indexOf('?') > -1 ? "&" : "?");
+            path = path + "partitions=" + optionalPartitions.get().stream().map(Object::toString).collect(Collectors.joining(","));
         }
         return "/internal" + path;
     }
