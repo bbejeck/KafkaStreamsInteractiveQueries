@@ -52,6 +52,8 @@ dependencies {
 
     implementation 'org.springframework.boot:spring-boot-starter-test'
     implementation 'org.springframework.kafka:spring-kafka-test'
+    testImplementation "org.testcontainers:kafka:1.17.4"
+    testImplementation "org.testcontainers:testcontainers:1.17.4"
     testImplementation(platform('org.junit:junit-bom:5.9.0'))
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testImplementation 'org.apache.kafka:kafka-streams-test-utils:3.2.3'
