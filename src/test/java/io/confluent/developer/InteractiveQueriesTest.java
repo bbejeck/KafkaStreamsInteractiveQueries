@@ -34,7 +34,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 
 @Testcontainers
-public class MultipleKafkaStreamsIntegrationTest {
+public class InteractiveQueriesTest {
 
     private final RestTemplate restTemplate = new RestTemplate();
     private final Time time = Time.SYSTEM;
