@@ -4,6 +4,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.streams.StreamsConfig;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.PropertySource;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -16,6 +17,7 @@ import java.util.Properties;
 
 @Configuration
 @Component
+@PropertySource("classpath:application.properties")
 public class KafkaStreamsAppConfiguration {
     @Value("${application.id}")
     private String applicationId;
@@ -35,14 +37,18 @@ public class KafkaStreamsAppConfiguration {
     @Value("${output.topic.name}")
     private String outputTopic;
 
-    @Value("${bootstrap.servers}")
+    @Value("    ${bootstrap.servers}")
     private List<String> bootstrapServers;
 
     @Value("${server.port}")
     private int serverPort;
 
+    @Value("${secure.configs}")
+    private String secureConfigs;
+
     public Properties streamsConfigs() {
         Map<String, Object> streamsConfigs = new HashMap<>();
+        Properties properties = new Properties();
         streamsConfigs.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         streamsConfigs.put(StreamsConfig.APPLICATION_ID_CONFIG, applicationId);
         streamsConfigs.put(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, cacheConfig);
@@ -53,16 +59,19 @@ public class KafkaStreamsAppConfiguration {
         String stateDirConfig = System.getProperty("java.io.tmpdir") + File.separator + "kafka-streams-" + serverPort;
         streamsConfigs.put(StreamsConfig.NUM_STANDBY_REPLICAS_CONFIG, 1);
         streamsConfigs.put(StreamsConfig.STATE_DIR_CONFIG, stateDirConfig);
-        Properties properties = new Properties();
         properties.putAll(streamsConfigs);
-        properties.putAll(saslConfigs());
+        if(secureConfigs.equals("true")) {
+            properties.putAll(saslConfigs());
+        }
         return properties;
     }
 
     private Properties saslConfigs() {
         Properties properties = new Properties();
         try (InputStream is = KafkaStreamsAppConfiguration.class.getClassLoader().getResourceAsStream("confluent.properties")) {
-            properties.load(is);
+            if (is != null) {
+                properties.load(is);
+            }
             return properties;
         } catch (IOException e) {
             System.out.println("For secure connections make sure to have confluent.properties file in src/main/resources");
