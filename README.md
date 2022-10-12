@@ -21,7 +21,7 @@ The project uses the following dependencies
 
 To run the application you have two options
 
-1. Build an uber jar from the project then run `java -jar jarFile mainClass`  from the command line.  Note to run more than one instance on the same host, you'll have to set a unique port for each instance using a `-Dserver.port=NNNN` setting for each one.
+1. COMING SOON: Build an uber jar from the project by running `./gradlew shadowJar` then run `java -jar kafka-streams-iq-app.jar` from the command line.  Note to run more than one instance on the same host, you'll have to set a unique port for each instance using a `-Dserver.port=NNNN` setting for each one.
 2. Run from IntelliJ.  Again you'll have to set a unique port for running more than one instance using `-Dserver.port=NNNN` in the `Spring-Boot` section of the `run/debug` configuration settings
 3. To push records through the Kafka Streams application run the [TestDataProducer](src/main/java/io/confluent/developer/streams/TestDataProducer.java) class again from either IntelliJ or a separate command from the command line `java -jar jarFile TestDataProducer`
 4. The [application.properties](src/main/resources/application.properties) file contains the Kafka Streams properties. The configuration class [KafkaStreamsAppConfiguration](src/main/java/io/confluent/developer/config/KafkaStreamsAppConfiguration.java) class ingests these properties. For connecting to [Confluent Cloud](https://confluent-cloud.io) there's the [confluent.properties.orig](src/main/resources/confluent.properties.orig) you can also use this file for secure connections to any Kafka cluster. The [KafkaStreamsAppConfiguration](src/main/java/io/confluent/developer/config/KafkaStreamsAppConfiguration.java) class is expecting a `confluent.properties` file to exist to use for secure connections. To make sure you don't check in any sensitive configs save the `confluent.properties.orig` file as `confluent.properties` which is set to ignore in the `.gitignore` file.
@@ -29,8 +29,10 @@ To run the application you have two options
 
 ### Testing
 
-There are two integration tests:
-1. [InteractiveQueriesWithStandByTasksEnabledTest](src/test/java/io/confluent/developer/InteractiveQueriesWithStandByTasksEnabledTest.java) starts two Kafka Streams applications, produces some records then asserts both active hosts return results then shuts down one application and asserts that the standby returns query results
-2. [InteractiveQueriesTest](src/test/java/io/confluent/developer/InteractiveQueriesTest.java) starts a single Kafka Streams application and asserts that IQ returns the correct results for all queries.
+There is an integration test for both key and range query:
+[InteractiveQueriesIntegrationTest](src/test/java/io/confluent/developer/InteractiveQueriesIntegrationTest.java) For both tests, they start two Kafka Streams applications, produces some records then asserts both active hosts return results then shuts down one application and asserts that the standby returns query results. The integration tests serve to show an example of testing an IQ application and will also help validate any changes you may make in the application.
 
-Which server to show an example of testing an IQ application and will also help validate any changes you may make in the application.
+**NOTE**: that the test uses testcontainers and the Kafka image is for M1 macs so if you're on `x86` you'll have to adjust the docker image pulled for the test.
+
+
+

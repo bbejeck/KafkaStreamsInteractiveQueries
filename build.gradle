@@ -16,6 +16,8 @@ buildscript {
 plugins {
     id 'org.springframework.boot' version '2.7.3'
     id 'io.spring.dependency-management' version '1.0.13.RELEASE'
+    id 'com.adarshr.test-logger' version '3.2.0'
+    id "com.github.johnrengelman.shadow" version "7.1.2"
     id 'java'
     id 'idea'
     id 'eclipse'
@@ -36,28 +38,28 @@ repositories {
     }
 }
 
+apply plugin: "com.github.johnrengelman.shadow"
+
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter'
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.kafka:spring-kafka'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.13.4'
-    implementation 'org.apache.logging.log4j:log4j-api:2.18.0'
-    implementation 'org.apache.logging.log4j:log4j-core:2.18.0'
-    implementation 'org.apache.logging.log4j:log4j-slf4j-impl:2.18.0'
+    implementation 'org.apache.logging.log4j:log4j-api:2.19.0'
+    implementation 'org.apache.logging.log4j:log4j-core:2.19.0'
+    implementation 'org.apache.logging.log4j:log4j-slf4j-impl:2.19.0'
 
-    implementation('org.apache.kafka:kafka-streams:3.2.3') {
+    implementation('org.apache.kafka:kafka-streams:3.3.1') {
         exclude group: 'org.apache.kafka', module: 'kafka-clients'
     }
-    implementation('org.apache.kafka:kafka-clients:3.2.3')
+    implementation('org.apache.kafka:kafka-clients:3.3.1')
 
-    implementation 'org.springframework.boot:spring-boot-starter-test'
-    implementation 'org.springframework.kafka:spring-kafka-test'
     testImplementation "org.testcontainers:kafka:1.17.4"
     testImplementation "org.testcontainers:testcontainers:1.17.4"
     testImplementation(platform('org.junit:junit-bom:5.9.0'))
     testImplementation 'org.junit.jupiter:junit-jupiter'
-    testImplementation 'org.apache.kafka:kafka-streams-test-utils:3.2.3'
-    testImplementation 'org.testcontainers:junit-jupiter:1.17.3'
+    testImplementation 'org.apache.kafka:kafka-streams-test-utils:3.3.1'
+    testImplementation 'org.testcontainers:junit-jupiter:1.17.4'
     testImplementation 'org.mockito:mockito-core:4.8.0'
     testImplementation 'org.hamcrest:hamcrest:2.2'
 }
@@ -70,5 +72,19 @@ configurations {
 
 tasks.named('test') {
     useJUnitPlatform()
+}
+
+jar {
+    manifest {
+        attributes(
+                "Class-Path": configurations.compileClasspath.collect { it.getName() }.join(" "),
+                "Main-Class": "io.confluent.developer.KafkaStreamsInteractiveQueriesApp"
+        )
+    }
+}
+shadowJar {
+    archiveBaseName.set('kafka-streams-iq-app')
+    archiveClassifier.set('')
+    archiveVersion.set('')
 }
 

@@ -4,6 +4,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.streams.StreamsConfig;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.PropertySource;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
@@ -16,6 +17,7 @@ import java.util.Properties;
 
 @Configuration
 @Component
+@PropertySource("classpath:application.properties")
 public class KafkaStreamsAppConfiguration {
     @Value("${application.id}")
     private String applicationId;
@@ -35,7 +37,7 @@ public class KafkaStreamsAppConfiguration {
     @Value("${output.topic.name}")
     private String outputTopic;
 
-    @Value("${bootstrap.servers}")
+    @Value("    ${bootstrap.servers}")
     private List<String> bootstrapServers;
 
     @Value("${server.port}")
@@ -67,7 +69,9 @@ public class KafkaStreamsAppConfiguration {
     private Properties saslConfigs() {
         Properties properties = new Properties();
         try (InputStream is = KafkaStreamsAppConfiguration.class.getClassLoader().getResourceAsStream("confluent.properties")) {
-            properties.load(is);
+            if (is != null) {
+                properties.load(is);
+            }
             return properties;
         } catch (IOException e) {
             System.out.println("For secure connections make sure to have confluent.properties file in src/main/resources");
