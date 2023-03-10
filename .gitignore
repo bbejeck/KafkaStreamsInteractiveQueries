@@ -18,3 +18,4 @@ notes.txt
 build
 WebClientTester*
 confluent.properties
+.sdkmanrc
