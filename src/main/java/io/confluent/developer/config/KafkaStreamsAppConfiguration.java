@@ -51,7 +51,7 @@ public class KafkaStreamsAppConfiguration {
         Properties properties = new Properties();
         streamsConfigs.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         streamsConfigs.put(StreamsConfig.APPLICATION_ID_CONFIG, applicationId);
-        streamsConfigs.put(StreamsConfig.CACHE_MAX_BYTES_BUFFERING_CONFIG, cacheConfig);
+        streamsConfigs.put(StreamsConfig.STATESTORE_CACHE_MAX_BYTES_CONFIG, cacheConfig);
         streamsConfigs.put(StreamsConfig.APPLICATION_SERVER_CONFIG, applicationServer);
         // This is set intentionally higher than normal to facilitate the demo we don't want
         // a rebalance to occur and reassign the standby to active too soon
