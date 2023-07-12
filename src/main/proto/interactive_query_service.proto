@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package io.confluent.developer.iq;
+
+option java_multiple_files = true;
+option java_package = "io.confluent.developer.proto";
+
+
+
+message StockTransaction {
+   string symbol = 1;
+   bool is_buy = 2;
+   double amount = 3;
+}
+
+message StockTransactionAggregationResponse {
+  string symbol = 1;
+  double buys = 2;
+  double sells = 3;
+}
+
+message KeyQueryRequest {
+  string symbol = 1;
+}
+
+service InternalQuery {
+  rpc GetAggregationForSymbol (KeyQueryRequest) returns (StockTransactionAggregationResponse);
+}
