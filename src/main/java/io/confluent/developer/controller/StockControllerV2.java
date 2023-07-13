@@ -1,8 +1,6 @@
 package io.confluent.developer.controller;
 
-import io.confluent.developer.grpc.service.InternalQueryService;
 import io.confluent.developer.model.StockTransactionAggregation;
-import io.confluent.developer.proto.InteractiveQueryService;
 import io.confluent.developer.proto.InternalQueryGrpc;
 import io.confluent.developer.query.QueryResponse;
 import io.grpc.ManagedChannelBuilder;
