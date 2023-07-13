@@ -19,9 +19,23 @@ message StockTransactionAggregationResponse {
   double sells = 3;
 }
 
+message HostInfo {
+  string host = 1;
+  int32 port = 2;
+}
+
+message KeyQueryMetadata {
+    int32 partition = 1;
+    HostInfo activeHost = 2;
+    repeated HostInfo standbyHosts = 3;
+}
+
 message KeyQueryRequest {
   string symbol = 1;
+  KeyQueryMetadata keyQueryMetadata = 2;
 }
+
+message Empty {}
 
 service InternalQuery {
   rpc GetAggregationForSymbol (KeyQueryRequest) returns (StockTransactionAggregationResponse);
