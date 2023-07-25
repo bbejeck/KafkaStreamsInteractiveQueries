@@ -57,6 +57,8 @@ public class StockControllerV2 {
     @Value("${application.server}")
     private String applicationServer;
 
+    @Value("${grc")
+
     private HostInfo thisHostInfo;
     private final RestTemplate restTemplate;
 
