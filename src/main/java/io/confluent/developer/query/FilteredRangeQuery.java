@@ -1,6 +1,7 @@
 package io.confluent.developer.query;
 
 import org.apache.kafka.common.serialization.Serde;
+import org.apache.kafka.streams.query.RangeQuery;
 import org.apache.kafka.streams.state.KeyValueIterator;
 
 import java.util.Optional;
@@ -33,7 +34,7 @@ public class FilteredRangeQuery<K, V> implements CustomQuery<KeyValueIterator<K,
     }
 
     public static <K, V> FilteredRangeQuery<K, V> withBounds(final K lowerBound, final K upperBound) {
-        return new FilteredRangeQuery<>(null, Optional.of(lowerBound), Optional.of(upperBound), null, null);
+        return new FilteredRangeQuery<>(null, Optional.ofNullable(lowerBound), Optional.ofNullable(upperBound), null, null);
     }
 
     public FilteredRangeQuery<K, V> predicate(BiPredicate<K, V> predicate){

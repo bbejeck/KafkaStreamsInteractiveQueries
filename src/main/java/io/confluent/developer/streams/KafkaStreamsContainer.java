@@ -2,6 +2,7 @@ package io.confluent.developer.streams;
 
 import io.confluent.developer.config.KafkaStreamsAppConfiguration;
 import org.apache.kafka.streams.KafkaStreams;
+import org.apache.kafka.streams.StreamsConfig;
 import org.apache.kafka.streams.Topology;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
@@ -32,6 +33,7 @@ public class KafkaStreamsContainer {
     @PostConstruct
     public void init() {
         Properties properties = appConfiguration.streamsConfigs();
+        properties.put(StreamsConfig.consumerPrefix("session.timeout.ms"),300_000);
         Topology topology = aggregationStream.topology();
         kafkaStreams = new KafkaStreams(topology, properties);
         kafkaStreams.cleanUp();

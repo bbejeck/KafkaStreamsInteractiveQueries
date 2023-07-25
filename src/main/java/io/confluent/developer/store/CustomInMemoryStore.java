@@ -48,7 +48,7 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
                                     final PositionBound positionBound,
                                     final QueryConfig config) {
         if (!(query instanceof CustomQuery)){
-             throw new IllegalStateException("Custom store only works with custom queries - you may need to wrap an existing query type");
+            return super.query(query, positionBound, config);
         }
         else {
             CustomQuery.Type queryType = ((CustomQuery<?>) query).type();

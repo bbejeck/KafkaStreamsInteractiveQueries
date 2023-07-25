@@ -1,7 +1,9 @@
 package io.confluent.developer.controller;
 
 import io.confluent.developer.model.StockTransactionAggregation;
+import io.confluent.developer.query.FilteredRangeQuery;
 import io.confluent.developer.query.QueryResponse;
+import io.confluent.developer.streams.SerdeUtil;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
@@ -32,6 +34,7 @@ import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.PostConstruct;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -40,6 +43,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.BiPredicate;
 import java.util.stream.Collectors;
 
 import static org.apache.kafka.streams.KeyQueryMetadata.NOT_AVAILABLE;
@@ -82,7 +86,8 @@ public class StockController {
 
     @GetMapping(value = "/range")
     public QueryResponse<List<StockTransactionAggregation>> getAggregationRange(@RequestParam(required = false) String lower,
-                                                                                @RequestParam(required = false) String upper) {
+                                                                                @RequestParam(required = false) String upper,
+                                                                                @RequestParam(required = false) String jsonFilter) {
 
         Collection<StreamsMetadata> streamsMetadata = kafkaStreams.streamsMetadataForStore(storeName);
         List<StockTransactionAggregation> aggregations = new ArrayList<>();
@@ -93,7 +98,7 @@ public class StockController {
                     Optional.of(partitions),
                     Optional.empty(),
                     lower,
-                    upper);
+                    upper, Optional.empty());
             if (!queryResponse.hasError()) {
                 aggregations.addAll(queryResponse.getResult());
             } else {
@@ -101,7 +106,7 @@ public class StockController {
                 Optional<QueryResponse<List<StockTransactionAggregation>>> standbyResponse = standbys.stream().map(standby -> {
                             Set<TopicPartition> standbyTopicPartitions = getStandbyTopicPartitions(streamsClient, standby);
                             Set<Integer> standbyPartitions = getPartitions(standbyTopicPartitions);
-                            return doRangeQuery(standby.hostInfo(), Optional.of(standbyPartitions), Optional.empty(), lower, upper);
+                            return doRangeQuery(standby.hostInfo(), Optional.of(standbyPartitions), Optional.empty(), lower, upper, Optional.empty());
                         }).filter(Objects::nonNull)
                         .findFirst();
                 standbyResponse.ifPresent(listQueryResponse -> aggregations.addAll(listQueryResponse.getResult()));
@@ -123,7 +128,7 @@ public class StockController {
             optionalPartitions = Optional.empty();
         }
 
-        return doRangeQuery(thisHostInfo, optionalPartitions, Optional.empty(), lower, upper);
+        return doRangeQuery(thisHostInfo, optionalPartitions, Optional.empty(), lower, upper, Optional.empty());
 
     }
 
@@ -131,9 +136,13 @@ public class StockController {
                                                                           final Optional<Set<Integer>> partitions,
                                                                           final Optional<PositionBound> positionBound,
                                                                           final String lower,
-                                                                          final String upper) {
+                                                                          final String upper,
+                                                                          final Optional<String> filterJson) {
 
-        RangeQuery<String, ValueAndTimestamp<StockTransactionAggregation>> rangeQuery = createRangeQuery(lower, upper);
+        FilteredRangeQuery<String, ValueAndTimestamp<StockTransactionAggregation>> rangeQuery  = createFilteredRangeQuery(lower, upper, filterJson);
+
+
+
         StateQueryRequest<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> queryRequest = StateQueryRequest.inStore(storeName).withQuery(rangeQuery);
         if (partitions.isPresent() && !partitions.get().isEmpty()) {
             queryRequest = queryRequest.withPartitions(partitions.get());
@@ -257,6 +266,11 @@ public class StockController {
         } else {
             return RangeQuery.withRange(lower, upper);
         }
+    }
+
+    private FilteredRangeQuery<String, ValueAndTimestamp<StockTransactionAggregation>> createFilteredRangeQuery(String lower, String upper, Optional<String> jsonPredicate) {
+        BiPredicate<String, ValueAndTimestamp<StockTransactionAggregation>> predicate = (key, vt) -> vt.value().getBuys() > (vt.value().getSells() * 2);
+        return FilteredRangeQuery.withPredicate(predicate).serdes(Serdes.String(), SerdeUtil.stockTransactionAggregateSerde());
     }
 
     private String createRangeRequestPath(String lower, String upper, Optional<Set<Integer>> optionalPartitions) {

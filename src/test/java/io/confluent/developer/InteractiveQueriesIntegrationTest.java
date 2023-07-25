@@ -30,6 +30,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Random;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -52,9 +53,12 @@ class InteractiveQueriesIntegrationTest {
 
     private static final String SYMBOL_ONE = "CFLT";
     private static final String SYMBOL_TWO = "ZELK";
+
+    private final Random random  = new Random();
     
     @Container
-    KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.2.2.arm64"));
+    //KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.4.1.arm64"));
+    KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.4.0.amd64"));
 
 
     @BeforeEach
@@ -173,6 +177,41 @@ class InteractiveQueriesIntegrationTest {
 
     }
 
+    @Test
+    @DisplayName("Custom Range Query with filtering")
+    void testFilteredRangeQueryIQ() {
+
+        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT, kafka.getBootstrapServers());
+        while (!contextOne.isRunning()) {
+            time.sleep(500);
+        }
+
+        time.sleep(5000);
+        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT, kafka.getBootstrapServers());
+        while ((!contextTwo.isRunning())) {
+            time.sleep(500);
+        }
+
+        time.sleep(5000);
+        produceInputRecordsForFilteredList(4,SYMBOL_ONE, SYMBOL_TWO, "GOOGL", "SHMDF", "TWTR", "MSFT");
+
+        // Time for Kafka Streams to process records
+        time.sleep(5000);
+        try {
+
+            QueryResponse<List<StockTransactionAggregation>> rangeResult = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO);
+            List<String> expectedSymbols = List.of(SYMBOL_ONE);
+            assertThat(expectedSymbols.size(), is(1) );
+            assertThat(expectedSymbols.get(0), is(rangeResult.getResult().get(0)));
+
+        } finally {
+            contextOne.close();
+            if (contextTwo.isRunning()) {
+                contextTwo.close();
+            }
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private QueryResponse<StockTransactionAggregation> queryForSingleResult(int port, String path) {
         QueryResponse<LinkedHashMap<String, Object>> response = restTemplate.getForObject("http://localhost:" + port + "/" + path, QueryResponse.class);
@@ -230,10 +269,36 @@ class InteractiveQueriesIntegrationTest {
         }
     }
 
+    private void produceInputRecordsForFilteredList(int numTransactions, String... symbols) {
+        Map<String, Object> producerConfigs = Map.of("bootstrap.servers", kafka.getBootstrapServers(),
+                "key.serializer", StringSerializer.class,
+                "value.serializer", SerdeUtil.stockTransactionSerde().serializer().getClass());
+        try (KafkaProducer<String, StockTransaction> producer = new KafkaProducer<>(producerConfigs)) {
+            Stream.of(symbols).forEach(symbol ->
+                    getListForFilteredRange(symbol, numTransactions).forEach(txn -> producer.send(new ProducerRecord<>("input", txn.getSymbol(), txn), ((metadata, exception) -> {
+                        if (exception != null) {
+                            System.err.println("Error producing records" + exception.getMessage());
+                        } else {
+                            System.out.printf("Produced record with key %s offset %d and partition %d%n", txn.getSymbol(), metadata.offset(), metadata.partition());
+                        }
+                    }))));
+        }
+    }
+
     private List<StockTransaction> getTransactionList(String symbol, int numTransactions) {
         var builder = StockTransaction.StockTransactionBuilder.builder();
         Stream<StockTransaction> txnStream = Stream.generate(() -> builder.withSymbol(symbol).withAmount(100.00).withBuy(true).build());
         return txnStream.limit(numTransactions).collect(Collectors.toList());
+    }
+
+    private List<StockTransaction> getListForFilteredRange(String symbol, int numTransactions) {
+        var builder = StockTransaction.StockTransactionBuilder.builder();
+         if(symbol.equals("CFLT")) {
+             Stream<StockTransaction> txnStream = Stream.generate(() -> builder.withSymbol("CFLT").withAmount(1000).withBuy(true).build());
+             return txnStream.limit(5).collect(Collectors.toList());
+         } else {
+             return getTransactionList(symbol, numTransactions);
+         }
     }
 
 

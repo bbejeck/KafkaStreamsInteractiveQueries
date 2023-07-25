@@ -50,4 +50,13 @@ public class StockTransactionAggregation {
     public int hashCode() {
         return Objects.hash(getSymbol(), getBuys(), getSells());
     }
+
+    @Override
+    public String toString() {
+        return "StockTransactionAggregation{" +
+                "symbol='" + symbol + '\'' +
+                ", buys=" + buys +
+                ", sells=" + sells +
+                '}';
+    }
 }
