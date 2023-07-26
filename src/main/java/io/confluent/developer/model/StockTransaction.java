@@ -28,7 +28,7 @@ public class StockTransaction {
         return symbol;
     }
 
-    public boolean buy() {
+    public boolean getBuy() {
         return buy;
     }
 
@@ -36,6 +36,26 @@ public class StockTransaction {
         return amount;
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof StockTransaction that)) return false;
+
+        if (buy != that.getBuy()) return false;
+        if (Double.compare(that.getAmount(), getAmount()) != 0) return false;
+        return getSymbol().equals(that.getSymbol());
+    }
+
+    @Override
+    public int hashCode() {
+        int result;
+        long temp;
+        result = getSymbol().hashCode();
+        result = 31 * result + (buy ? 1 : 0);
+        temp = Double.doubleToLongBits(getAmount());
+        result = 31 * result + (int) (temp ^ (temp >>> 32));
+        return result;
+    }
 
     public static final class StockTransactionBuilder {
         private String symbol;

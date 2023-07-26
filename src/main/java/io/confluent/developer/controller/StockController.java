@@ -270,7 +270,7 @@ public class StockController {
 
     private FilteredRangeQuery<String, ValueAndTimestamp<StockTransactionAggregation>> createFilteredRangeQuery(String lower, String upper, Optional<String> jsonPredicate) {
         BiPredicate<String, ValueAndTimestamp<StockTransactionAggregation>> predicate = (key, vt) -> vt.value().getBuys() > (vt.value().getSells() * 2);
-        return FilteredRangeQuery.withPredicate(predicate).serdes(Serdes.String(), SerdeUtil.stockTransactionAggregateSerde());
+        return FilteredRangeQuery.withPredicate(predicate).serdes(Serdes.String(), SerdeUtil.valueAndTimestampSerde());
     }
 
     private String createRangeRequestPath(String lower, String upper, Optional<Set<Integer>> optionalPartitions) {

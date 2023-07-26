@@ -76,7 +76,7 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
             unfilteredRangeResults.forEachRemaining(bytesKeyValue -> {
                 K key = keyDeserializer.deserialize(null, bytesKeyValue.key.get());
                 byte[] valueBytes = isWrappedByTimestampedStore ?
-                        Arrays.copyOfRange(bytesKeyValue.value, 8, bytesKeyValue.value.length)
+                        Arrays.copyOfRange(bytesKeyValue.value, 0, bytesKeyValue.value.length)
                         : bytesKeyValue.value;
                 V value = valueDeserializer.deserialize(null, valueBytes);
                 if (predicate.test(key, value)) {

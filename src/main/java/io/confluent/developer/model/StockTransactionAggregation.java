@@ -19,7 +19,7 @@ public class StockTransactionAggregation {
         if (symbol == null) {
             symbol = transaction.getSymbol();
         }
-        if (transaction.buy()) {
+        if (transaction.getBuy()) {
              buys += transaction.getAmount();
         } else {
             sells += transaction.getAmount();

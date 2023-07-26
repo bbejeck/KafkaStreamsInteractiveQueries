@@ -202,7 +202,7 @@ class InteractiveQueriesIntegrationTest {
             QueryResponse<List<StockTransactionAggregation>> rangeResult = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO);
             List<String> expectedSymbols = List.of(SYMBOL_ONE);
             assertThat(expectedSymbols.size(), is(1) );
-            assertThat(expectedSymbols.get(0), is(rangeResult.getResult().get(0)));
+            assertThat(rangeResult.getResult().get(0), is(expectedSymbols.get(0)));
 
         } finally {
             contextOne.close();
