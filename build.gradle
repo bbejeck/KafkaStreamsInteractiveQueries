@@ -48,6 +48,7 @@ dependencies {
     implementation 'org.apache.logging.log4j:log4j-api:2.19.0'
     implementation 'org.apache.logging.log4j:log4j-core:2.19.0'
     implementation 'org.apache.logging.log4j:log4j-slf4j-impl:2.19.0'
+    implementation 'com.google.protobuf:protobuf-java-util:3.23.4'
 
     implementation('org.apache.kafka:kafka-streams:3.5.1') {
         exclude group: 'org.apache.kafka', module: 'kafka-clients'

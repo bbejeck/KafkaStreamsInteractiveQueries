@@ -28,7 +28,6 @@ import java.util.function.BiPredicate;
 
 public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
     private StateStoreContext context;
-    private boolean isWrappedByTimestampedStore;
 
     private final Time time = Time.SYSTEM;
 
@@ -39,7 +38,6 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
     @Override
     public void init(StateStoreContext context, StateStore root) {
         this.context = context;
-        isWrappedByTimestampedStore = root instanceof TimestampedKeyValueStore;
         super.init(context, root);
     }
 
@@ -75,10 +73,7 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
 
             unfilteredRangeResults.forEachRemaining(bytesKeyValue -> {
                 K key = keyDeserializer.deserialize(null, bytesKeyValue.key.get());
-                byte[] valueBytes = isWrappedByTimestampedStore ?
-                        Arrays.copyOfRange(bytesKeyValue.value, 0, bytesKeyValue.value.length)
-                        : bytesKeyValue.value;
-                V value = valueDeserializer.deserialize(null, valueBytes);
+                V value = valueDeserializer.deserialize(null, bytesKeyValue.value);
                 if (predicate.test(key, value)) {
                     filteredResults.add(KeyValue.pair(key, value));
                 }
@@ -98,13 +93,7 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
         keys.forEach(key -> {
             Bytes keyBytes = Bytes.wrap(keySerializer.serialize(null, key));
             byte[] returnedBytes = get(keyBytes);
-            byte[] valueBytes;
-            if (isWrappedByTimestampedStore) {
-                valueBytes = Arrays.copyOfRange(returnedBytes, 8, returnedBytes.length);
-            } else {
-                valueBytes = returnedBytes;
-            }
-            results.add(KeyValue.pair(key, valueDeserializer.deserialize(null, valueBytes)));
+            results.add(KeyValue.pair(key, valueDeserializer.deserialize(null, returnedBytes)));
         });
         long queryExecutionTime = time.milliseconds() - start;
         KeyValueIterator<K, V> queryResultIterator = new InMemoryKeyValueIterator(results.iterator());

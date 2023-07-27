@@ -34,7 +34,6 @@ import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.PostConstruct;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -186,6 +185,14 @@ public class StockController {
             }
         }
         return queryResponse;
+    }
+
+    @GetMapping(value="/multikey/{symbols}")
+    public QueryResponse<List<String>> getMultiAggregationKeyQuery(@PathVariable List<String> symbols){
+        List<String> querySymbols = new ArrayList<>();
+        querySymbols.add("Received multiple params - formatted as a list");
+        querySymbols.addAll(symbols);
+        return QueryResponse.withResult(querySymbols);
     }
 
 
