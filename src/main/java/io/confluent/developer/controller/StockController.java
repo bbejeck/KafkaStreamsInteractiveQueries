@@ -36,6 +36,7 @@ import javax.annotation.PostConstruct;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +44,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiPredicate;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.apache.kafka.streams.KeyQueryMetadata.NOT_AVAILABLE;
@@ -188,7 +190,18 @@ public class StockController {
     }
 
     @GetMapping(value="/multikey/{symbols}")
-    public QueryResponse<List<String>> getMultiAggregationKeyQuery(@PathVariable List<String> symbols){
+    /*
+      Organize by partition -> KeyQueryMetadata -> list symbols
+     */
+    public QueryResponse<List<String>> getMultiAggregationKeyQuery(@PathVariable List<String> symbols) {
+        Map<KeyQueryMetadata, List<String>> metadataSymbolMap =  new HashMap<>();
+        symbols.forEach(symbol -> {
+            KeyQueryMetadata metadata = getKeyMetadata(symbol, Serdes.String().serializer());
+            if (metadata != null) {
+                metadataSymbolMap.computeIfAbsent(metadata, k -> new ArrayList<>()).add(symbol);
+            }
+        });
+
         List<String> querySymbols = new ArrayList<>();
         querySymbols.add("Received multiple params - formatted as a list");
         querySymbols.addAll(symbols);
@@ -276,7 +289,10 @@ public class StockController {
     }
 
     private FilteredRangeQuery<String, ValueAndTimestamp<StockTransactionAggregation>> createFilteredRangeQuery(String lower, String upper, Optional<String> jsonPredicate) {
-        BiPredicate<String, ValueAndTimestamp<StockTransactionAggregation>> predicate = (key, vt) -> vt.value().getBuys() > (vt.value().getSells() * 2);
+        BiPredicate<String, ValueAndTimestamp<StockTransactionAggregation>> predicate = (key, vt) ->  {
+            StockTransactionAggregation agg = vt.value();
+            return (agg.getBuys() >= (agg.getSells() * 2.0)) && (agg.getBuys() + agg.getSells()) > 1000.00;
+        };
         return FilteredRangeQuery.withPredicate(predicate).serdes(Serdes.String(), SerdeUtil.valueAndTimestampSerde());
     }
 

@@ -26,6 +26,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -198,11 +199,10 @@ class InteractiveQueriesIntegrationTest {
         // Time for Kafka Streams to process records
         time.sleep(5000);
         try {
-
             QueryResponse<List<StockTransactionAggregation>> rangeResult = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO);
             List<String> expectedSymbols = List.of(SYMBOL_ONE);
-            assertThat(expectedSymbols.size(), is(1) );
-            assertThat(rangeResult.getResult().get(0), is(expectedSymbols.get(0)));
+            assertThat(rangeResult.getResult().size(), is(1) );
+            assertThat(rangeResult.getResult().get(0).getSymbol(), is(expectedSymbols.get(0)));
 
         } finally {
             contextOne.close();
@@ -287,15 +287,19 @@ class InteractiveQueriesIntegrationTest {
 
     private List<StockTransaction> getTransactionList(String symbol, int numTransactions) {
         var builder = StockTransaction.StockTransactionBuilder.builder();
-        Stream<StockTransaction> txnStream = Stream.generate(() -> builder.withSymbol(symbol).withAmount(100.00).withBuy(true).build());
+        Stream<StockTransaction> txnStream = Stream.generate(() -> builder.withSymbol(symbol).withAmount(100.00).withBuy(random.nextBoolean()).build());
         return txnStream.limit(numTransactions).collect(Collectors.toList());
     }
 
     private List<StockTransaction> getListForFilteredRange(String symbol, int numTransactions) {
         var builder = StockTransaction.StockTransactionBuilder.builder();
          if(symbol.equals("CFLT")) {
-             Stream<StockTransaction> txnStream = Stream.generate(() -> builder.withSymbol("CFLT").withAmount(1000).withBuy(true).build());
-             return txnStream.limit(5).collect(Collectors.toList());
+             Stream<StockTransaction> buyStream = Stream.generate(() -> builder.withSymbol("CFLT").withAmount(1000).withBuy(true).build());
+             Stream<StockTransaction> sellStream = Stream.generate(() -> builder.withSymbol("CFLT").withAmount(500).withBuy(false).build());
+             List<StockTransaction> allTransactions = new ArrayList<>();
+             allTransactions.addAll(buyStream.limit(5).toList());
+             allTransactions.addAll(sellStream.limit(5).toList());
+             return allTransactions;
          } else {
              return getTransactionList(symbol, numTransactions);
          }
