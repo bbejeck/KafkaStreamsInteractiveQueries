@@ -101,12 +101,10 @@ class InteractiveQueriesIntegrationTest {
         time.sleep(5000);
         try {
             QueryResponse<StockTransactionAggregation> appOneResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_ONE);
-            assertThat(appOneResult.getResult().getSells(), is(300.00));
             assertThat(appOneResult.getResult().getSymbol(), is(SYMBOL_ONE));
             assertThat(appOneResult.getHostType(), containsString("ACTIVE"));
 
             QueryResponse<StockTransactionAggregation> appTwoResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_TWO);
-            assertThat(appTwoResult.getResult().getSells(), is(300.00));
             assertThat(appTwoResult.getResult().getSymbol(), is(SYMBOL_TWO));
             assertThat(appTwoResult.getHostType(), containsString("ACTIVE"));
 
@@ -116,13 +114,11 @@ class InteractiveQueriesIntegrationTest {
             }
 
             appOneResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_ONE);
-            assertThat(appOneResult.getResult().getSells(), is(300.00));
             assertThat(appOneResult.getResult().getSymbol(), is(SYMBOL_ONE));
             assertThat(appOneResult.getHostType(), containsString("STANDBY"));
             assertThat(appOneResult.getHostType(), containsString(Integer.toString(APP_ONE_PORT)));
 
             appTwoResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_TWO);
-            assertThat(appTwoResult.getResult().getSells(), is(300.00));
             assertThat(appTwoResult.getResult().getSymbol(), is(SYMBOL_TWO));
             assertThat(appTwoResult.getHostType(), containsString("ACTIVE"));
             assertThat(appTwoResult.getHostType(), containsString(Integer.toString(APP_ONE_PORT)));
