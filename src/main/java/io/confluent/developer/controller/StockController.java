@@ -142,13 +142,8 @@ public class StockController {
                                                                           final String upper,
                                                                           final String filterJson) {
         
-        Query<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>>  rangeQuery;
-        if (filterJson != null && !filterJson.isBlank()) {
-            rangeQuery  =  createFilteredRangeQuery(lower, upper, filterJson);
-        } else {
-            rangeQuery = createRangeQuery(lower, upper);
-        }
-
+        Query<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> rangeQuery = createRangeQuery(lower, upper, filterJson);
+        
         StateQueryRequest<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> queryRequest = StateQueryRequest.inStore(storeName).withQuery(rangeQuery);
         if (partitions.isPresent() && !partitions.get().isEmpty()) {
             queryRequest = queryRequest.withPartitions(partitions.get());
@@ -280,15 +275,19 @@ public class StockController {
         return temp;
     }
 
-    private RangeQuery<String, ValueAndTimestamp<StockTransactionAggregation>> createRangeQuery(String lower, String upper) {
-        if (isBlank(lower) && isBlank(upper)) {
-            return RangeQuery.withNoBounds();
-        } else if (!isBlank(lower) && isBlank(upper)) {
-            return RangeQuery.withLowerBound(lower);
-        } else if (isBlank(lower) && !isBlank(upper)) {
-            return RangeQuery.withUpperBound(upper);
+    private Query<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> createRangeQuery(String lower, String upper, String jsonPredicate) {
+        if(isNotBlank(jsonPredicate)) {
+            return createFilteredRangeQuery(lower, upper, jsonPredicate);
         } else {
-            return RangeQuery.withRange(lower, upper);
+            if (isBlank(lower) && isBlank(upper)) {
+                return RangeQuery.withNoBounds();
+            } else if (!isBlank(lower) && isBlank(upper)) {
+                return RangeQuery.withLowerBound(lower);
+            } else if (isBlank(lower) && !isBlank(upper)) {
+                return RangeQuery.withUpperBound(upper);
+            } else {
+                return RangeQuery.withRange(lower, upper);
+            }
         }
     }
 
@@ -311,6 +310,10 @@ public class StockController {
 
     private boolean isBlank(String str) {
         return str == null || str.isBlank();
+    }
+
+    private boolean isNotBlank(String str) {
+        return !isBlank(str);
     }
 
     private List<StockTransactionAggregation> extractStateQueryResults(StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> result) {
