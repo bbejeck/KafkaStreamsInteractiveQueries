@@ -6,10 +6,12 @@ import io.confluent.developer.query.QueryResponse;
 import io.confluent.developer.streams.SerdeUtil;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.streams.StreamsConfig;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -242,6 +244,7 @@ class InteractiveQueriesIntegrationTest {
         properties.put("bootstrap.servers", bootstrapServers);
         properties.put("server.port", serverPort);
         properties.put("secure.configs", "false");
+        properties.put(StreamsConfig.consumerPrefix(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG), 60 * 1000);
         ConfigurableEnvironment env = new StandardEnvironment();
         env.setActiveProfiles("app-one-test-profile");
 

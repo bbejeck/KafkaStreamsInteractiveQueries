@@ -46,8 +46,8 @@ import java.util.stream.Collectors;
 
 import static org.apache.kafka.streams.KeyQueryMetadata.NOT_AVAILABLE;
 
-@RestController
-@RequestMapping("/streams-iqV2")
+//@RestController
+//@RequestMapping("/streams-iqV2")
 public class StockControllerV2 {
     private final KafkaStreams kafkaStreams;
     private InternalQueryGrpc.InternalQueryBlockingStub blockingStub;

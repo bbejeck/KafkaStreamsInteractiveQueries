@@ -1,8 +1,16 @@
 package io.confluent.developer.config;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.databind.JsonSerializer;
+import com.fasterxml.jackson.databind.SerializerProvider;
+import com.google.protobuf.Message;
+import com.google.protobuf.util.JsonFormat;
+import io.confluent.developer.proto.StockTransactionAggregationResponse;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.streams.StreamsConfig;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.jackson.Jackson2ObjectMapperBuilderCustomizer;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.stereotype.Component;
@@ -46,6 +54,8 @@ public class KafkaStreamsAppConfiguration {
     @Value("${secure.configs}")
     private String secureConfigs;
 
+
+
     public Properties streamsConfigs() {
         Map<String, Object> streamsConfigs = new HashMap<>();
         Properties properties = new Properties();
@@ -64,6 +74,26 @@ public class KafkaStreamsAppConfiguration {
             properties.putAll(saslConfigs());
         }
         return properties;
+    }
+
+    @Bean
+    public Jackson2ObjectMapperBuilderCustomizer jackson2ObjectMapperBuilderCustomizer() {
+        JsonFormat.TypeRegistry typeRegistry = JsonFormat.TypeRegistry.newBuilder()
+                .add(StockTransactionAggregationResponse.getDescriptor())
+                .build();
+
+        JsonFormat.Printer printer = JsonFormat.printer().usingTypeRegistry(typeRegistry)
+                .includingDefaultValueFields();
+        
+        return objectMapperBuilder ->
+                objectMapperBuilder.serializerByType(Message.class, new JsonSerializer<Message>() {
+            @Override
+            public void serialize(Message message,
+                                  JsonGenerator jsonGenerator,
+                                  SerializerProvider serializers) throws IOException {
+                jsonGenerator.writeRawValue(printer.print(message));
+            }
+        });
     }
 
     private Properties saslConfigs() {

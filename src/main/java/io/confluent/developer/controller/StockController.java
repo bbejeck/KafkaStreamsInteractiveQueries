@@ -1,6 +1,7 @@
 package io.confluent.developer.controller;
 
 import io.confluent.developer.model.StockTransactionAggregation;
+import io.confluent.developer.proto.StockTransactionAggregationResponse;
 import io.confluent.developer.query.FilteredRangeQuery;
 import io.confluent.developer.query.QueryResponse;
 import io.confluent.developer.streams.SerdeUtil;
@@ -168,7 +169,7 @@ public class StockController {
     }
 
     @GetMapping(value = "/keyquery/{symbol}")
-    public QueryResponse<StockTransactionAggregation> getAggregationKeyQuery(@PathVariable String symbol) {
+    public QueryResponse<StockTransactionAggregationResponse> getAggregationKeyQuery(@PathVariable String symbol) {
         KeyQueryMetadata keyMetadata = getKeyMetadata(symbol, Serdes.String().serializer());
         if (keyMetadata == null) {
             return QueryResponse.withError(String.format("ERROR: Unable to get key metadata after %d retries", MAX_RETRIES));
@@ -176,9 +177,9 @@ public class StockController {
         HostInfo activeHost = keyMetadata.activeHost();
         Set<HostInfo> standbyHosts = keyMetadata.standbyHosts();
         KeyQuery<String, ValueAndTimestamp<StockTransactionAggregation>> keyQuery = KeyQuery.withKey(symbol);
-        QueryResponse<StockTransactionAggregation> queryResponse = doKeyQuery(activeHost, keyQuery, keyMetadata, symbol, HostStatus.ACTIVE);
+        QueryResponse<StockTransactionAggregationResponse> queryResponse = doKeyQuery(activeHost, keyQuery, keyMetadata, symbol, HostStatus.ACTIVE);
         if (queryResponse.hasError() && !standbyHosts.isEmpty()) {
-            Optional<QueryResponse<StockTransactionAggregation>> standbyResponse = standbyHosts.stream()
+            Optional<QueryResponse<StockTransactionAggregationResponse>> standbyResponse = standbyHosts.stream()
                     .map(standbyHost -> doKeyQuery(standbyHost, keyQuery, keyMetadata, symbol, HostStatus.STANDBY))
                     .filter(resp -> resp != null && !resp.hasError())
                     .findFirst();
@@ -209,19 +210,23 @@ public class StockController {
     }
 
 
-    private QueryResponse<StockTransactionAggregation> doKeyQuery(final HostInfo targetHostInfo,
+    private QueryResponse<StockTransactionAggregationResponse> doKeyQuery(final HostInfo targetHostInfo,
                                                                   final Query<ValueAndTimestamp<StockTransactionAggregation>> query,
                                                                   final KeyQueryMetadata keyMetadata,
                                                                   final String symbol,
                                                                   final HostStatus hostStatus) {
-        QueryResponse<StockTransactionAggregation> queryResponse;
+        QueryResponse<StockTransactionAggregationResponse> queryResponse;
         if (targetHostInfo.equals(thisHostInfo)) {
             Set<Integer> partitionSet = Collections.singleton(keyMetadata.partition());
             StateQueryResult<ValueAndTimestamp<StockTransactionAggregation>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                     .withQuery(query)
                     .withPartitions(partitionSet));
             QueryResult<ValueAndTimestamp<StockTransactionAggregation>> queryResult = keyQueryResult.getOnlyPartitionResult();
-            queryResponse = QueryResponse.withResult(queryResult.getResult().value());
+            StockTransactionAggregationResponse stockTransactionAggregationResponse = StockTransactionAggregationResponse.newBuilder()
+                    .setBuys(queryResult.getResult().value().getBuys())
+                    .setSells(queryResult.getResult().value().getSells())
+                    .setSymbol(queryResult.getResult().value().getSymbol()).build();
+            queryResponse = QueryResponse.withResult(stockTransactionAggregationResponse);
         } else {
             String path = "/keyquery/" + symbol;
             String host = targetHostInfo.host();
