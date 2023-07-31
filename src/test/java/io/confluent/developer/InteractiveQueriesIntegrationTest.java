@@ -21,6 +21,7 @@ import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.PropertiesPropertySource;
 import org.springframework.core.env.StandardEnvironment;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 import org.testcontainers.containers.KafkaContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -154,7 +155,7 @@ class InteractiveQueriesIntegrationTest {
         time.sleep(5000);
         try {
 
-            QueryResponse<List<StockTransactionAggregation>> rangeResult = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO);
+            QueryResponse<List<StockTransactionAggregation>> rangeResult = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO, null);
             List<String> expectedSymbols = List.of(SYMBOL_ONE, SYMBOL_TWO, "GOOGL", "SHMDF", "TWTR", "MSFT");
             assertThat(expectedSymbols, containsInAnyOrder(rangeResult.getResult().stream().map(StockTransactionAggregation::getSymbol).toArray()));
 
@@ -162,7 +163,7 @@ class InteractiveQueriesIntegrationTest {
             while (contextTwo.isRunning()) {
                 time.sleep(500);
             }
-            QueryResponse<List<StockTransactionAggregation>> rangeResultII = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO);
+            QueryResponse<List<StockTransactionAggregation>> rangeResultII = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO, null);
             assertThat(rangeResult.getResult(), containsInAnyOrder(rangeResultII.getResult().toArray()));
 
         } finally {
@@ -195,7 +196,7 @@ class InteractiveQueriesIntegrationTest {
         // Time for Kafka Streams to process records
         time.sleep(5000);
         try {
-            QueryResponse<List<StockTransactionAggregation>> rangeResult = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO);
+            QueryResponse<List<StockTransactionAggregation>> rangeResult = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO, "{filter: true}");
             List<String> expectedSymbols = List.of(SYMBOL_ONE);
             assertThat(rangeResult.getResult().size(), is(1) );
             assertThat(rangeResult.getResult().get(0).getSymbol(), is(expectedSymbols.get(0)));
@@ -220,8 +221,10 @@ class InteractiveQueriesIntegrationTest {
     }
 
     @SuppressWarnings("unchecked")
-    private QueryResponse<List<StockTransactionAggregation>> queryForRangeResult(int port, String lower, String upper) {
-        QueryResponse<List<LinkedHashMap<String, Object>>> response = restTemplate.getForObject("http://localhost:" + port + "/streams-iq/range?lower=" + lower + "&upper=" + upper, QueryResponse.class);
+    private QueryResponse<List<StockTransactionAggregation>> queryForRangeResult(int port, String lower, String upper, String jsonFilter) {
+        String url = "http://localhost:" + port + "/streams-iq/range";
+        UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString(url).queryParam("lower", lower).queryParam("upper", upper).queryParam("filter", jsonFilter);
+        QueryResponse<List<LinkedHashMap<String, Object>>> response = restTemplate.getForObject(uriBuilder.build().toUri(), QueryResponse.class);
         List<StockTransactionAggregation> aggregationList = response.getResult().stream().map(lhm -> {
             String symbol = (String) lhm.get("symbol");
             double buys = (double) lhm.get("buys");
