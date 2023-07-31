@@ -31,6 +31,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import javax.annotation.PostConstruct;
 import java.util.ArrayList;
@@ -140,15 +141,13 @@ public class StockController {
                                                                           final String lower,
                                                                           final String upper,
                                                                           final String filterJson) {
+        
         Query<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>>  rangeQuery;
         if (filterJson != null && !filterJson.isBlank()) {
             rangeQuery  =  createFilteredRangeQuery(lower, upper, filterJson);
         } else {
             rangeQuery = createRangeQuery(lower, upper);
         }
-
-
-
 
         StateQueryRequest<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> queryRequest = StateQueryRequest.inStore(storeName).withQuery(rangeQuery);
         if (partitions.isPresent() && !partitions.get().isEmpty()) {
@@ -165,7 +164,7 @@ public class StockController {
             aggregations.addAll(extractStateQueryResults(result));
             queryResponse = QueryResponse.withResult(aggregations);
         } else {
-            String path = createRangeRequestPath(lower, upper, partitions);
+            String path = createRangeRequestPath(lower, upper, filterJson, partitions);
             String host = targetHostInfo.host();
             int port = targetHostInfo.port();
             queryResponse = doRemoteRequest(host, port, path);
@@ -272,8 +271,7 @@ public class StockController {
     private List<StreamsMetadata> getStandbyClients(final StreamsMetadata currentClient, Collection<StreamsMetadata> candidates) {
         return candidates.stream().filter(streamClient -> !streamClient.equals(currentClient) &&
                         streamClient.standbyStateStoreNames().contains(storeName) &&
-                        !getStandbyTopicPartitions(currentClient, streamClient).isEmpty())
-                .collect(Collectors.toList());
+                        !getStandbyTopicPartitions(currentClient, streamClient).isEmpty()).toList();
     }
 
     private Set<TopicPartition> getStandbyTopicPartitions(StreamsMetadata currentClient, StreamsMetadata standbyCandidate) {
@@ -302,22 +300,13 @@ public class StockController {
         return FilteredRangeQuery.withPredicate(predicate).serdes(Serdes.String(), SerdeUtil.valueAndTimestampSerde());
     }
 
-    private String createRangeRequestPath(String lower, String upper, Optional<Set<Integer>> optionalPartitions) {
-        String path;
-        if (isBlank(lower) && isBlank(upper)) {
-            path = "/range";
-        } else if (!isBlank(lower) && isBlank(upper)) {
-            path = "/range?lower=" + lower;
-        } else if (isBlank(lower) && !isBlank(upper)) {
-            path = "/range?upper=" + upper;
-        } else {
-            path = "/range?lower=" + lower + "&upper=" + upper;
-        }
-        if (optionalPartitions.isPresent()) {
-            path = path + (path.indexOf('?') > -1 ? "&" : "?");
-            path = path + "partitions=" + optionalPartitions.get().stream().map(Object::toString).collect(Collectors.joining(","));
-        }
-        return "/internal" + path;
+    private String createRangeRequestPath(String lower, String upper, String filter, Optional<Set<Integer>> optionalPartitions) {
+        UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString("/internal")
+                .queryParam("lower", lower)
+                .queryParam("upper", upper)
+                .queryParam("filter", filter)
+                .queryParam("partitions", optionalPartitions.orElse(new HashSet<>()));
+        return uriBuilder.build().getPath();
     }
 
     private boolean isBlank(String str) {
