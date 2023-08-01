@@ -1,10 +1,16 @@
 package io.confluent.developer.controller;
 
 import io.confluent.developer.model.StockTransactionAggregation;
+import io.confluent.developer.proto.InternalQueryGrpc;
+import io.confluent.developer.proto.KeyQueryRequest;
 import io.confluent.developer.proto.StockTransactionAggregationResponse;
 import io.confluent.developer.query.FilteredRangeQuery;
 import io.confluent.developer.query.QueryResponse;
 import io.confluent.developer.streams.SerdeUtil;
+import io.grpc.Channel;
+import io.grpc.ManagedChannel;
+import io.grpc.ManagedChannelBuilder;
+import io.grpc.StatusRuntimeException;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
@@ -70,7 +76,8 @@ public class StockController {
 
     private enum HostStatus {
         ACTIVE,
-        STANDBY
+        STANDBY,
+        ACTIVE_GRPC
     }
 
     @Autowired
@@ -227,18 +234,41 @@ public class StockController {
                     .setSells(queryResult.getResult().value().getSells())
                     .setSymbol(queryResult.getResult().value().getSymbol()).build();
             queryResponse = QueryResponse.withResult(stockTransactionAggregationResponse);
+            queryResponse.setHostType(hostStatus.name() + "-" + targetHostInfo.host() + ":" + targetHostInfo.port());
         } else {
-            String path = "/keyquery/" + symbol;
             String host = targetHostInfo.host();
-            int port = targetHostInfo.port();
-            queryResponse = doRemoteRequest(host, port, path);
+            // By convention all gRPC ports are Kafka Streams host port - 2000
+            int port = targetHostInfo.port() - 2000;
+            queryResponse = doRemoteKeyRequest(host, port, keyMetadata.partition(), symbol);
         }
-        return queryResponse.setHostType(hostStatus.name() + "-" + targetHostInfo.host() + ":" + targetHostInfo.port());
+        return queryResponse;
     }
 
 
+    private <V> QueryResponse<V> doRemoteKeyRequest(String host, int port, int partition, String symbol) {
+        QueryResponse<V> remoteResponse;
+        ManagedChannel channel = null;
+        try {
+            channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+            InternalQueryGrpc.InternalQueryBlockingStub blockingStub = InternalQueryGrpc.newBlockingStub(channel);
+            io.confluent.developer.proto.KeyQueryMetadata keyQueryMetadata = io.confluent.developer.proto.KeyQueryMetadata.newBuilder().setPartition(partition).build();
+            KeyQueryRequest keyQueryRequest = KeyQueryRequest.newBuilder().setSymbol(symbol).setKeyQueryMetadata(keyQueryMetadata).build();
+            StockTransactionAggregationResponse aggregationResponse = blockingStub.getAggregationForSymbol(keyQueryRequest);
+            remoteResponse = (QueryResponse<V>) QueryResponse.withResult(aggregationResponse);
+            remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
+        } catch (StatusRuntimeException exception) {
+            remoteResponse = QueryResponse.withError(exception.getMessage());
+        } finally {
+            if (channel != null) {
+                channel.shutdown();
+            }
+        }
+        return remoteResponse;
+    }
+
     private <V> QueryResponse<V> doRemoteRequest(String host, int port, String path) {
         QueryResponse<V> remoteResponse;
+        ManagedChannel channel = null;
         try {
             remoteResponse = restTemplate.getForObject(BASE_IQ_URL + path, QueryResponse.class, host, port);
             if (remoteResponse == null) {

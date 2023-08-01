@@ -136,6 +136,42 @@ class InteractiveQueriesIntegrationTest {
     }
 
     @Test
+    @DisplayName("Key Query using gRPC for remote call")
+    void testKeyQueryIQgRpc() {
+
+        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT, kafka.getBootstrapServers());
+        while (!contextOne.isRunning()) {
+            time.sleep(500);
+        }
+
+        time.sleep(5000);
+        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT, kafka.getBootstrapServers());
+        while ((!contextTwo.isRunning())) {
+            time.sleep(500);
+        }
+
+        time.sleep(5000);
+        produceInputRecords(3, SYMBOL_ONE, SYMBOL_TWO);
+
+
+        // Time for Kafka Streams to process records
+        time.sleep(5000);
+        try {
+            QueryResponse<StockTransactionAggregation> appOneResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_TWO);
+            assertThat(appOneResult.getResult().getSymbol(), is(SYMBOL_TWO));
+            assertThat(appOneResult.getHostType(), containsString("ACTIVE_GRPC-localhost:5089"));
+        } finally {
+            contextOne.close();
+            if (contextTwo.isRunning()) {
+                contextTwo.close();
+            }
+        }
+
+    }
+
+
+
+    @Test
     @DisplayName("Range Query and failover with Standby Tasks")
     void testStandbyRangeQueryIQ() {
 
@@ -236,13 +272,15 @@ class InteractiveQueriesIntegrationTest {
         return QueryResponse.withResult(aggregationList);
     }
 
-    private ConfigurableApplicationContext createAndStartApplication(int serverPort, String bootstrapServers) {
+    private ConfigurableApplicationContext createAndStartApplication(int serverPort,
+                                                                     String bootstrapServers) {
         SpringApplicationBuilder applicationBuilder =
                 new SpringApplicationBuilder(KafkaStreamsInteractiveQueriesApp.class);
         SpringApplication kafkaStreamsApp = applicationBuilder.build();
         Properties properties = new Properties();
         properties.put("bootstrap.servers", bootstrapServers);
         properties.put("server.port", serverPort);
+        properties.put("grpc.port", serverPort - 2000);
         properties.put("secure.configs", "false");
         properties.put(StreamsConfig.consumerPrefix(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG), 60 * 1000);
         ConfigurableEnvironment env = new StandardEnvironment();
