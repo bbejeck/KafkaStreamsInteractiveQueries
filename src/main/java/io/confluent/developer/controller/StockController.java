@@ -217,6 +217,35 @@ public class StockController {
     }
 
 
+    private QueryResponse<List<StockTransactionAggregationResponse>> doMultiKeyQuery(final Map<KeyQueryMetadata, List<String>> metadataSymbolMap,
+                                                                          final Query<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> query,
+                                                                          final HostStatus hostStatus) {
+        QueryResponse<List<StockTransactionAggregationResponse>> queryResponse;
+        metadataSymbolMap.forEach((keyMetadata, symbols) -> {
+            if (keyMetadata.activeHost().equals(thisHostInfo)) {
+                Set<Integer> partitionSet = Collections.singleton(keyMetadata.partition());
+                StateQueryResult<KeyValueIterator<String,ValueAndTimestamp<StockTransactionAggregation>>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+                        .withQuery(query)
+                        .withPartitions(partitionSet));
+                QueryResult<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregation>>> queryResult = keyQueryResult.getOnlyPartitionResult();
+                StockTransactionAggregationResponse stockTransactionAggregationResponse = StockTransactionAggregationResponse.newBuilder()
+                        .setBuys(queryResult.getResult().value().getBuys())
+                        .setSells(queryResult.getResult().value().getSells())
+                        .setSymbol(queryResult.getResult().value().getSymbol()).build();
+                queryResponse = QueryResponse.withResult(stockTransactionAggregationResponse);
+                queryResponse.setHostType(hostStatus.name() + "-" + targetHostInfo.host() + ":" + targetHostInfo.port());
+            } else {
+                String host = targetHostInfo.host();
+                // By convention all gRPC ports are Kafka Streams host port - 2000
+                int port = targetHostInfo.port() - 2000;
+                queryResponse = doRemoteKeyRequest(host, port, keyMetadata.partition(), symbol);
+            }
+        });
+
+        return queryResponse;
+    }
+
+
     private QueryResponse<StockTransactionAggregationResponse> doKeyQuery(final HostInfo targetHostInfo,
                                                                   final Query<ValueAndTimestamp<StockTransactionAggregation>> query,
                                                                   final KeyQueryMetadata keyMetadata,
