@@ -3,6 +3,7 @@ package io.confluent.developer.streams;
 import io.confluent.developer.config.KafkaStreamsAppConfiguration;
 import io.confluent.developer.model.StockTransaction;
 import io.confluent.developer.model.StockTransactionAggregation;
+import io.confluent.developer.proto.StockTransactionAggregationResponse;
 import io.confluent.developer.store.CustomStores;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
@@ -31,7 +32,7 @@ public class AggregationStream {
     }
 
     private final Serde<String> stringSerde = Serdes.String();
-    private final Serde<StockTransactionAggregation> aggregationSerde = SerdeUtil.stockTransactionAggregateSerde();
+    private final Serde<StockTransactionAggregationResponse> aggregationSerde = SerdeUtil.stockTransactionAggregateSerde();
     private final Serde<StockTransaction> stockTransactionSerde = SerdeUtil.stockTransactionSerde();
 
     public Topology topology() {
@@ -43,12 +44,16 @@ public class AggregationStream {
                         " key " + k + " value " + v));
 
         KeyValueBytesStoreSupplier supplier = CustomStores.customInMemoryBytesStoreSupplier(streamsConfiguration.storeName());
-        Materialized<String, StockTransactionAggregation, KeyValueStore<Bytes, byte[]>> materialized = Materialized.as(supplier);
+        Materialized<String, StockTransactionAggregationResponse, KeyValueStore<Bytes, byte[]>> materialized = Materialized.as(supplier);
         materialized.withKeySerde(stringSerde).withValueSerde(aggregationSerde);
 
         input.groupByKey()
-                .aggregate(StockTransactionAggregation::new,
-                        (k, v, agg) -> agg.update(v),
+                .aggregate(() -> StockTransactionAggregationResponse.newBuilder().build(),
+                        (k, v, agg) -> {
+                            StockTransactionAggregationResponse.Builder txnBuilder = agg.toBuilder();
+                            return v.getBuy() ? txnBuilder.setBuys(txnBuilder.getBuys() + v.getAmount()).build()
+                                    : txnBuilder.setSells(txnBuilder.getSells() + v.getAmount()).build();
+                        },
                         materialized )
                 .toStream()
                 .peek((k, v) -> System.out.println("Aggregation result key " + k + " value " + v))

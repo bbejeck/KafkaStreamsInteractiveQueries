@@ -2,6 +2,7 @@ package io.confluent.developer.streams;
 
 import io.confluent.developer.model.StockTransaction;
 import io.confluent.developer.model.StockTransactionAggregation;
+import io.confluent.developer.proto.StockTransactionAggregationResponse;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.streams.state.ValueAndTimestamp;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,24 +17,27 @@ class SerdeUtilTest {
     private final String topic = "topic";
     private final long currentTimestamp = Instant.now().toEpochMilli();
     private final Serde<StockTransaction> stockTransactionSerde = SerdeUtil.stockTransactionSerde();
-    private final Serde<StockTransactionAggregation> stockTransactionAggregationSerde = SerdeUtil.stockTransactionAggregateSerde();
-    private final Serde<ValueAndTimestamp<StockTransactionAggregation>> stockTransactionAggregationValueAndTimestampSerde = SerdeUtil.valueAndTimestampSerde();
+    private final Serde<StockTransactionAggregationResponse> stockTransactionAggregationSerde = SerdeUtil.stockTransactionAggregateSerde();
+    private final Serde<ValueAndTimestamp<StockTransactionAggregationResponse>> stockTransactionAggregationValueAndTimestampSerde = SerdeUtil.valueAndTimestampSerde();
 
     private StockTransaction originalStockTransaction;
-    private StockTransactionAggregation originalStockTransactionAggregation;
-    private ValueAndTimestamp<StockTransactionAggregation> originalValueAndTimestamp;
+    private StockTransactionAggregationResponse originalStockTransactionAggregation;
+    private ValueAndTimestamp<StockTransactionAggregationResponse> originalValueAndTimestamp;
 
     @BeforeEach
     public void setUp() {
        originalStockTransaction = StockTransaction.StockTransactionBuilder.builder().withAmount(100).withSymbol("BWB").withBuy(true).build();
-       originalStockTransactionAggregation = new StockTransactionAggregation(originalStockTransaction.getSymbol(), originalStockTransaction.getAmount(), originalStockTransaction.getAmount());
+       originalStockTransactionAggregation = StockTransactionAggregationResponse.newBuilder()
+               .setSymbol(originalStockTransaction.getSymbol())
+               .setBuys(originalStockTransaction.getAmount())
+               .setSells(originalStockTransaction.getAmount()).build();
        originalValueAndTimestamp = ValueAndTimestamp.make(originalStockTransactionAggregation, currentTimestamp);
     }
 
     @Test
     void roundTripStockTransactionAggregateSerdeTest() {
         byte[] serialized = stockTransactionAggregationSerde.serializer().serialize(topic, originalStockTransactionAggregation);
-        StockTransactionAggregation deserialized = stockTransactionAggregationSerde.deserializer().deserialize(topic, serialized);
+        StockTransactionAggregationResponse deserialized = stockTransactionAggregationSerde.deserializer().deserialize(topic, serialized);
         assertEquals(deserialized, originalStockTransactionAggregation);
     }
 
@@ -47,7 +51,7 @@ class SerdeUtilTest {
     @Test
     void roundTripValueAndTimestampSerdeTest() {
         byte[] serialized = stockTransactionAggregationValueAndTimestampSerde.serializer().serialize(topic, originalValueAndTimestamp);
-        ValueAndTimestamp<StockTransactionAggregation> deserialized = stockTransactionAggregationValueAndTimestampSerde.deserializer().deserialize(topic, serialized);
+        ValueAndTimestamp<StockTransactionAggregationResponse> deserialized = stockTransactionAggregationValueAndTimestampSerde.deserializer().deserialize(topic, serialized);
         assertEquals(deserialized, originalValueAndTimestamp);
     }
 }

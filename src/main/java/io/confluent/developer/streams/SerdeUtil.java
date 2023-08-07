@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import io.confluent.developer.model.StockTransaction;
 import io.confluent.developer.model.StockTransactionAggregation;
+import io.confluent.developer.proto.StockTransactionAggregationResponse;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.LongDeserializer;
 import org.apache.kafka.common.serialization.LongSerializer;
@@ -19,29 +20,29 @@ import java.nio.ByteBuffer;
 
 public class SerdeUtil {
 
-    private SerdeUtil(){};
+    private SerdeUtil() {
+    }
 
-
-    public static Serde<StockTransactionAggregation> stockTransactionAggregateSerde() {
-        return Serdes.serdeFrom(new StockTransactionAggregationSerializer(), new StockTransactionAggregationDeserializer());
+    public static Serde<StockTransactionAggregationResponse> stockTransactionAggregateSerde() {
+        return Serdes.serdeFrom(new StockTransactionAggregationResponseSerializer(), new StockTransactionAggregationResonseDeserializer());
     }
 
     public static Serde<StockTransaction> stockTransactionSerde() {
         return Serdes.serdeFrom(new StockTransactionSerializer(), new StockTransactionDeserializer());
     }
 
-    public static Serde<ValueAndTimestamp<StockTransactionAggregation>> valueAndTimestampSerde() {
-         return Serdes.serdeFrom(new ValueAndTimestampSerializer(), new ValueAndTimestampDeserializer());
+    public static Serde<ValueAndTimestamp<StockTransactionAggregationResponse>> valueAndTimestampSerde() {
+        return Serdes.serdeFrom(new ValueAndTimestampSerializer(), new ValueAndTimestampDeserializer());
     }
 
-    public static class ValueAndTimestampSerializer implements Serializer<ValueAndTimestamp<StockTransactionAggregation>> {
+    public static class ValueAndTimestampSerializer implements Serializer<ValueAndTimestamp<StockTransactionAggregationResponse>> {
         private final LongSerializer longSerializer = new LongSerializer();
-        private final StockTransactionAggregationSerializer stockTransactionAggregationSerializer = new StockTransactionAggregationSerializer();
+        private final StockTransactionAggregationResponseSerializer stockTransactionAggregationResponseSerializer = new StockTransactionAggregationResponseSerializer();
 
         @Override
-        public byte[] serialize(String topic, ValueAndTimestamp<StockTransactionAggregation> aggregationValueAndTimestamp) {
+        public byte[] serialize(String topic, ValueAndTimestamp<StockTransactionAggregationResponse> aggregationValueAndTimestamp) {
             final byte[] timestampBytes = longSerializer.serialize(topic, aggregationValueAndTimestamp.timestamp());
-            final byte[] aggregationBytes = stockTransactionAggregationSerializer.serialize(topic, aggregationValueAndTimestamp.value());
+            final byte[] aggregationBytes = stockTransactionAggregationResponseSerializer.serialize(topic, aggregationValueAndTimestamp.value());
 
             return ByteBuffer
                     .allocate(timestampBytes.length + aggregationBytes.length)
@@ -53,53 +54,48 @@ public class SerdeUtil {
         @Override
         public void close() {
             longSerializer.close();
-            stockTransactionAggregationSerializer.close();;
+            stockTransactionAggregationResponseSerializer.close();
         }
     }
 
-    public static class ValueAndTimestampDeserializer implements Deserializer<ValueAndTimestamp<StockTransactionAggregation>> {
+    public static class ValueAndTimestampDeserializer implements Deserializer<ValueAndTimestamp<StockTransactionAggregationResponse>> {
 
         private final LongDeserializer longDeserializer = new LongDeserializer();
-        private final StockTransactionAggregationDeserializer stockTransactionAggregationDeserializer = new StockTransactionAggregationDeserializer();
+        private final StockTransactionAggregationResonseDeserializer stockTransactionAggregationResonseDeserializer = new StockTransactionAggregationResonseDeserializer();
 
         @Override
-        public ValueAndTimestamp<StockTransactionAggregation> deserialize(String topic, byte[] data) {
+        public ValueAndTimestamp<StockTransactionAggregationResponse> deserialize(String topic, byte[] data) {
             final long timestamp = longDeserializer.deserialize(topic, ByteBuffer.allocate(8).put(data, 0, 8).array());
             int valueLength = data.length - 8;
-            final StockTransactionAggregation stockTransactionAggregation =
-                    stockTransactionAggregationDeserializer.deserialize(topic, ByteBuffer.allocate(valueLength).put(data, 8, valueLength).array());
+            final StockTransactionAggregationResponse stockTransactionAggregation =
+                    stockTransactionAggregationResonseDeserializer.deserialize(topic, ByteBuffer.allocate(valueLength).put(data, 8, valueLength).array());
             return ValueAndTimestamp.make(stockTransactionAggregation, timestamp);
         }
+
         @Override
         public void close() {
-           longDeserializer.close();
-           stockTransactionAggregationDeserializer.close();
+            longDeserializer.close();
+            stockTransactionAggregationResonseDeserializer.close();
         }
     }
 
-    public static class StockTransactionAggregationSerializer implements Serializer<StockTransactionAggregation> {
-        private final ObjectWriter objectWriter = new ObjectMapper().writer();
+    public static class StockTransactionAggregationResponseSerializer implements Serializer<StockTransactionAggregationResponse> {
 
         @Override
-        public byte[] serialize(String s, StockTransactionAggregation stockTransactionAggregation) {
+        public byte[] serialize(String s, StockTransactionAggregationResponse stockTransactionAggregation) {
             if (stockTransactionAggregation == null) {
                 return null;
             }
-            try {
-                return objectWriter.writeValueAsBytes(stockTransactionAggregation);
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
+            return stockTransactionAggregation.toByteArray();
         }
     }
 
-    public static class StockTransactionAggregationDeserializer implements Deserializer<StockTransactionAggregation> {
-        private final ObjectReader objectReader = new ObjectMapper().reader();
+    public static class StockTransactionAggregationResonseDeserializer implements Deserializer<StockTransactionAggregationResponse> {
 
         @Override
-        public StockTransactionAggregation deserialize(String s, byte[] bytes) {
+        public StockTransactionAggregationResponse deserialize(String s, byte[] bytes) {
             try {
-                return objectReader.readValue(bytes, StockTransactionAggregation.class);
+                return StockTransactionAggregationResponse.parseFrom(bytes);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }

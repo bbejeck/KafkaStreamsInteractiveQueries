@@ -33,7 +33,7 @@ message KeyQueryMetadata {
 }
 
 message KeyQueryRequest {
-  string symbol = 1;
+  repeated string symbols = 1;
   KeyQueryMetadata keyQueryMetadata = 2;
 }
 
