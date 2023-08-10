@@ -8,56 +8,56 @@ option java_outer_classname = "QueryProtos";
 
 import "google/protobuf/struct.proto";
 
-
-message StockTransaction {
-   string symbol = 1;
-   bool is_buy = 2;
-   double amount = 3;
-}
-
-message StockTransactionAggregationResponse {
-  string symbol = 1;
-  double buys = 2;
-  double sells = 3;
-}
-
-message HostInfo {
+message HostInfoProto {
   string host = 1;
   int32 port = 2;
 }
 
-message KeyQueryMetadata {
+message KeyQueryMetadataProto {
     int32 partition = 1;
-    HostInfo activeHost = 2;
-    repeated HostInfo standbyHosts = 3;
+    HostInfoProto activeHost = 2;
+    repeated HostInfoProto standbyHosts = 3;
 }
 
-message KeyQueryRequest {
+message KeyQueryRequestProto {
+  string symbol = 1;
+  KeyQueryMetadataProto keyQueryMetadata = 2;
+}
+
+message MultKeyQueryRequestProto {
   repeated string symbols = 1;
-  KeyQueryMetadata keyQueryMetadata = 2;
+  KeyQueryMetadataProto keyQueryMetadata = 2;
 }
 
-message RangeQueryRequest {
+message RangeQueryRequestProto {
   string lower = 1;
   string upper = 2;
+  string jsonPredicate = 3;
 }
 
-message RemoteRequest {
-  oneof request {
-    KeyQueryRequest key_request = 1;
-    RangeQueryRequest range_request = 2;
-  }
-}
-
-message QueryResponse {
+message QueryResponseProto {
   string error_message = 1;
   map<string, google.protobuf.ListValue> execution_info = 2;
   string host_type = 3;
-  repeated StockTransactionAggregationResponse response = 4;
+  oneof results {
+    SingleResultProto single_result = 4;
+    MultipleResultProto multiple_results = 5;
+  }
+}
+
+message SingleResultProto {
+  string json_result = 1;
+}
+message MultipleResultProto {
+  repeated string json_results = 1;
 }
 
 message Empty {}
 
 service InternalQuery {
-  rpc GetAggregationForSymbol (KeyQueryRequest) returns (StockTransactionAggregationResponse);
+  rpc GetAggregationForSymbol (KeyQueryRequestProto) returns (QueryResponseProto);
+
+  rpc GetAggregationsForSymbols (MultKeyQueryRequestProto) returns (QueryResponseProto);
+
+  rpc RangeQueryForSymbols (RangeQueryRequestProto) returns (QueryResponseProto);
 }

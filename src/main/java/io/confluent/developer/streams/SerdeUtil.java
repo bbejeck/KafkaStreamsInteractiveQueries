@@ -1,12 +1,11 @@
 package io.confluent.developer.streams;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import io.confluent.developer.model.StockTransaction;
-import io.confluent.developer.model.StockTransactionAggregation;
-import io.confluent.developer.proto.StockTransactionAggregationResponse;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.LongDeserializer;
 import org.apache.kafka.common.serialization.LongSerializer;
@@ -23,24 +22,24 @@ public class SerdeUtil {
     private SerdeUtil() {
     }
 
-    public static Serde<StockTransactionAggregationResponse> stockTransactionAggregateSerde() {
-        return Serdes.serdeFrom(new StockTransactionAggregationResponseSerializer(), new StockTransactionAggregationResonseDeserializer());
+    public static Serde<JsonNode> stockTransactionAggregateSerde() {
+        return Serdes.serdeFrom(new JsonNodeSerializer(), new JsonNodeDeserializer());
     }
 
     public static Serde<StockTransaction> stockTransactionSerde() {
         return Serdes.serdeFrom(new StockTransactionSerializer(), new StockTransactionDeserializer());
     }
 
-    public static Serde<ValueAndTimestamp<StockTransactionAggregationResponse>> valueAndTimestampSerde() {
+    public static Serde<ValueAndTimestamp<JsonNode>> valueAndTimestampSerde() {
         return Serdes.serdeFrom(new ValueAndTimestampSerializer(), new ValueAndTimestampDeserializer());
     }
 
-    public static class ValueAndTimestampSerializer implements Serializer<ValueAndTimestamp<StockTransactionAggregationResponse>> {
+    public static class ValueAndTimestampSerializer implements Serializer<ValueAndTimestamp<JsonNode>> {
         private final LongSerializer longSerializer = new LongSerializer();
-        private final StockTransactionAggregationResponseSerializer stockTransactionAggregationResponseSerializer = new StockTransactionAggregationResponseSerializer();
+        private final JsonNodeSerializer stockTransactionAggregationResponseSerializer = new JsonNodeSerializer();
 
         @Override
-        public byte[] serialize(String topic, ValueAndTimestamp<StockTransactionAggregationResponse> aggregationValueAndTimestamp) {
+        public byte[] serialize(String topic, ValueAndTimestamp<JsonNode> aggregationValueAndTimestamp) {
             final byte[] timestampBytes = longSerializer.serialize(topic, aggregationValueAndTimestamp.timestamp());
             final byte[] aggregationBytes = stockTransactionAggregationResponseSerializer.serialize(topic, aggregationValueAndTimestamp.value());
 
@@ -58,44 +57,49 @@ public class SerdeUtil {
         }
     }
 
-    public static class ValueAndTimestampDeserializer implements Deserializer<ValueAndTimestamp<StockTransactionAggregationResponse>> {
+    public static class ValueAndTimestampDeserializer implements Deserializer<ValueAndTimestamp<JsonNode>> {
 
         private final LongDeserializer longDeserializer = new LongDeserializer();
-        private final StockTransactionAggregationResonseDeserializer stockTransactionAggregationResonseDeserializer = new StockTransactionAggregationResonseDeserializer();
+        private final JsonNodeDeserializer jsonNodeDeserializer = new JsonNodeDeserializer();
 
         @Override
-        public ValueAndTimestamp<StockTransactionAggregationResponse> deserialize(String topic, byte[] data) {
+        public ValueAndTimestamp<JsonNode> deserialize(String topic, byte[] data) {
             final long timestamp = longDeserializer.deserialize(topic, ByteBuffer.allocate(8).put(data, 0, 8).array());
             int valueLength = data.length - 8;
-            final StockTransactionAggregationResponse stockTransactionAggregation =
-                    stockTransactionAggregationResonseDeserializer.deserialize(topic, ByteBuffer.allocate(valueLength).put(data, 8, valueLength).array());
+            final JsonNode stockTransactionAggregation =
+                    jsonNodeDeserializer.deserialize(topic, ByteBuffer.allocate(valueLength).put(data, 8, valueLength).array());
             return ValueAndTimestamp.make(stockTransactionAggregation, timestamp);
         }
 
         @Override
         public void close() {
             longDeserializer.close();
-            stockTransactionAggregationResonseDeserializer.close();
+            jsonNodeDeserializer.close();
         }
     }
 
-    public static class StockTransactionAggregationResponseSerializer implements Serializer<StockTransactionAggregationResponse> {
+    public static class JsonNodeSerializer implements Serializer<JsonNode> {
+        ObjectWriter writer = new ObjectMapper().writer();
 
         @Override
-        public byte[] serialize(String s, StockTransactionAggregationResponse stockTransactionAggregation) {
+        public byte[] serialize(String s, JsonNode stockTransactionAggregation) {
             if (stockTransactionAggregation == null) {
                 return null;
             }
-            return stockTransactionAggregation.toByteArray();
+            try {
+                return writer.writeValueAsBytes(stockTransactionAggregation);
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 
-    public static class StockTransactionAggregationResonseDeserializer implements Deserializer<StockTransactionAggregationResponse> {
-
+    public static class JsonNodeDeserializer implements Deserializer<JsonNode> {
+             ObjectMapper mapper = new ObjectMapper();
         @Override
-        public StockTransactionAggregationResponse deserialize(String s, byte[] bytes) {
+        public JsonNode deserialize(String s, byte[] bytes) {
             try {
-                return StockTransactionAggregationResponse.parseFrom(bytes);
+                return mapper.readTree(bytes);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }

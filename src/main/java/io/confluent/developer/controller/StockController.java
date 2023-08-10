@@ -1,8 +1,13 @@
 package io.confluent.developer.controller;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.confluent.developer.model.StockTransactionAggregation;
 import io.confluent.developer.proto.InternalQueryGrpc;
+import io.confluent.developer.proto.KeyQueryMetadataProto;
 import io.confluent.developer.proto.KeyQueryRequest;
+import io.confluent.developer.proto.KeyQueryRequestProto;
+import io.confluent.developer.proto.MultKeyQueryRequestProto;
+import io.confluent.developer.proto.QueryResponseProto;
 import io.confluent.developer.proto.StockTransactionAggregationResponse;
 import io.confluent.developer.query.FilteredRangeQuery;
 import io.confluent.developer.query.MultiKeyQuery;
@@ -251,12 +256,12 @@ public class StockController {
     }
 
 
-    private QueryResponse<StockTransactionAggregationResponse> doKeyQuery(final HostInfo targetHostInfo,
+    private QueryResponse<JsonNode> doKeyQuery(final HostInfo targetHostInfo,
                                                                   final Query<ValueAndTimestamp<StockTransactionAggregation>> query,
                                                                   final KeyQueryMetadata keyMetadata,
                                                                   final String symbol,
                                                                   final HostStatus hostStatus) {
-        QueryResponse<StockTransactionAggregationResponse> queryResponse;
+        QueryResponse<JsonNode> queryResponse;
         if (targetHostInfo.equals(thisHostInfo)) {
             Set<Integer> partitionSet = Collections.singleton(keyMetadata.partition());
             StateQueryResult<ValueAndTimestamp<StockTransactionAggregation>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
@@ -285,9 +290,15 @@ public class StockController {
         try {
             channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
             InternalQueryGrpc.InternalQueryBlockingStub blockingStub = InternalQueryGrpc.newBlockingStub(channel);
-            io.confluent.developer.proto.KeyQueryMetadata keyQueryMetadata = io.confluent.developer.proto.KeyQueryMetadata.newBuilder().setPartition(partition).build();
-            KeyQueryRequest keyQueryRequest = KeyQueryRequest.newBuilder().addAllSymbols(symbols).setKeyQueryMetadata(keyQueryMetadata).build();
-            StockTransactionAggregationResponse aggregationResponse = blockingStub.getAggregationForSymbol(keyQueryRequest);
+            KeyQueryMetadataProto keyQueryMetadata = KeyQueryMetadataProto.newBuilder().setPartition(partition).build();
+            QueryResponseProto aggregationResponse = null;
+            if (symbols.size() > 1) {
+             KeyQueryRequestProto keyQueryRequest = KeyQueryRequestProto.newBuilder().setSymbol(symbols.iterator().next()).setKeyQueryMetadata(keyQueryMetadata).build();
+             aggregationResponse = blockingStub.getAggregationForSymbol(keyQueryRequest);
+            } else {
+                MultKeyQueryRequestProto multipleRequest = MultKeyQueryRequestProto.newBuilder().addAllSymbols(symbols).setKeyQueryMetadata(keyQueryMetadata).build();
+                aggregationResponse = blockingStub.getAggregationsForSymbols(multipleRequest);
+            }
             remoteResponse = (QueryResponse<V>) QueryResponse.withResult(aggregationResponse);
             remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
         } catch (StatusRuntimeException exception) {
@@ -344,7 +355,7 @@ public class StockController {
         return temp;
     }
 
-    private Query<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregationResponse>>> createRangeQuery(String lower, String upper, String jsonPredicate) {
+    private Query<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> createRangeQuery(String lower, String upper, String jsonPredicate) {
         if(isNotBlank(jsonPredicate)) {
             return createFilteredRangeQuery(lower, upper, jsonPredicate);
         } else {
@@ -360,12 +371,8 @@ public class StockController {
         }
     }
 
-    private FilteredRangeQuery<String, ValueAndTimestamp<StockTransactionAggregationResponse>> createFilteredRangeQuery(String lower, String upper, String jsonPredicate) {
-        BiPredicate<String, ValueAndTimestamp<StockTransactionAggregationResponse>> predicate = (key, vt) ->  {
-            StockTransactionAggregationResponse agg = vt.value();
-            return (agg.getBuys() >= (agg.getSells() * 2.0)) && (agg.getBuys() + agg.getSells()) > 3000.00;
-        };
-        return FilteredRangeQuery.withPredicate(predicate).serdes(Serdes.String(), SerdeUtil.valueAndTimestampSerde());
+    private FilteredRangeQuery<String, ValueAndTimestamp<JsonNode>> createFilteredRangeQuery(String lower, String upper, String jsonPredicate) {
+        return FilteredRangeQuery.<String, ValueAndTimestamp<JsonNode>>withPredicate(jsonPredicate).serdes(Serdes.String(), SerdeUtil.valueAndTimestampSerde());
     }
 
     private String createRangeRequestPath(String lower, String upper, String filter, Optional<Set<Integer>> optionalPartitions) {
@@ -385,9 +392,9 @@ public class StockController {
         return !isBlank(str);
     }
 
-    private List<StockTransactionAggregationResponse> extractStateQueryResults(StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregationResponse>>> result) {
-        Map<Integer, QueryResult<KeyValueIterator<String, ValueAndTimestamp<StockTransactionAggregationResponse>>>> allPartitionsResult = result.getPartitionResults();
-        List<StockTransactionAggregationResponse> aggregationResult = new ArrayList<>();
+    private List<JsonNode> extractStateQueryResults(StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> result) {
+        Map<Integer, QueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>>> allPartitionsResult = result.getPartitionResults();
+        List<JsonNode> aggregationResult = new ArrayList<>();
         allPartitionsResult.forEach((key, queryResult) -> {
             queryResult.getResult().forEachRemaining(kv -> aggregationResult.add(kv.value.value()));
         });
