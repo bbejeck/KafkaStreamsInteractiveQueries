@@ -62,7 +62,7 @@ class InteractiveQueriesIntegrationTest {
     
     @Container
     //KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.4.1.arm64"));
-    KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.4.0.amd64"));
+    KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.4.0"));
 
 
     @BeforeEach
@@ -234,7 +234,7 @@ class InteractiveQueriesIntegrationTest {
         // Time for Kafka Streams to process records
         time.sleep(5000);
         try {
-            QueryResponse<List<StockTransactionAggregation>> rangeResult = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO, "{filter: true}");
+            QueryResponse<List<StockTransactionAggregation>> rangeResult = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO, "@.symbol == CFLT");
             List<String> expectedSymbols = List.of(SYMBOL_ONE);
             assertThat(rangeResult.getResult().size(), is(1) );
             assertThat(rangeResult.getResult().get(0).getSymbol(), is(expectedSymbols.get(0)));

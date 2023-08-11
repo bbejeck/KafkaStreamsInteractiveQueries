@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import io.confluent.developer.model.StockTransaction;
+import io.confluent.developer.model.StockTransactionAggregation;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.LongDeserializer;
 import org.apache.kafka.common.serialization.LongSerializer;
@@ -22,21 +23,25 @@ public class SerdeUtil {
     private SerdeUtil() {
     }
 
-    public static Serde<JsonNode> stockTransactionAggregateSerde() {
-        return Serdes.serdeFrom(new JsonNodeSerializer(), new JsonNodeDeserializer());
+    public static Serde<JsonNode> stockTransactionAggregateJsonNodeSerde() {
+        return Serdes.serdeFrom(new ObjectSerializer<>(), new ObjectDeserializer<>(JsonNode.class));
     }
 
     public static Serde<StockTransaction> stockTransactionSerde() {
-        return Serdes.serdeFrom(new StockTransactionSerializer(), new StockTransactionDeserializer());
+        return Serdes.serdeFrom(new ObjectSerializer<>(), new ObjectDeserializer<>(StockTransaction.class));
     }
 
     public static Serde<ValueAndTimestamp<JsonNode>> valueAndTimestampSerde() {
         return Serdes.serdeFrom(new ValueAndTimestampSerializer(), new ValueAndTimestampDeserializer());
     }
 
+    public static Serde<StockTransactionAggregation> stockTransactionAggregationSerde() {
+        return Serdes.serdeFrom(new ObjectSerializer<>(), new ObjectDeserializer<>(StockTransactionAggregation.class));
+    }
+
     public static class ValueAndTimestampSerializer implements Serializer<ValueAndTimestamp<JsonNode>> {
         private final LongSerializer longSerializer = new LongSerializer();
-        private final JsonNodeSerializer stockTransactionAggregationResponseSerializer = new JsonNodeSerializer();
+        private final ObjectSerializer<JsonNode> stockTransactionAggregationResponseSerializer = new ObjectSerializer<>();
 
         @Override
         public byte[] serialize(String topic, ValueAndTimestamp<JsonNode> aggregationValueAndTimestamp) {
@@ -60,7 +65,7 @@ public class SerdeUtil {
     public static class ValueAndTimestampDeserializer implements Deserializer<ValueAndTimestamp<JsonNode>> {
 
         private final LongDeserializer longDeserializer = new LongDeserializer();
-        private final JsonNodeDeserializer jsonNodeDeserializer = new JsonNodeDeserializer();
+        private final ObjectDeserializer<JsonNode> jsonNodeDeserializer = new ObjectDeserializer<>(JsonNode.class);
 
         @Override
         public ValueAndTimestamp<JsonNode> deserialize(String topic, byte[] data) {
@@ -78,57 +83,34 @@ public class SerdeUtil {
         }
     }
 
-    public static class JsonNodeSerializer implements Serializer<JsonNode> {
-        ObjectWriter writer = new ObjectMapper().writer();
-
-        @Override
-        public byte[] serialize(String s, JsonNode stockTransactionAggregation) {
-            if (stockTransactionAggregation == null) {
-                return null;
-            }
-            try {
-                return writer.writeValueAsBytes(stockTransactionAggregation);
-            } catch (JsonProcessingException e) {
-                throw new RuntimeException(e);
-            }
-        }
-    }
-
-    public static class JsonNodeDeserializer implements Deserializer<JsonNode> {
-             ObjectMapper mapper = new ObjectMapper();
-        @Override
-        public JsonNode deserialize(String s, byte[] bytes) {
-            try {
-                return mapper.readTree(bytes);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
-        }
-    }
-
-    public static class StockTransactionSerializer implements Serializer<StockTransaction> {
+    public static class ObjectSerializer<T> implements Serializer<T> {
         private final ObjectWriter objectWriter = new ObjectMapper().writer();
 
         @Override
-        public byte[] serialize(String s, StockTransaction stockTransaction) {
-            if (stockTransaction == null) {
+        public byte[] serialize(String s, T object) {
+            if (object == null) {
                 return null;
             }
             try {
-                return objectWriter.writeValueAsBytes(stockTransaction);
+                return objectWriter.writeValueAsBytes(object);
             } catch (JsonProcessingException e) {
                 throw new RuntimeException(e);
             }
         }
     }
 
-    public static class StockTransactionDeserializer implements Deserializer<StockTransaction> {
+    public static class ObjectDeserializer<T> implements Deserializer<T> {
         private final ObjectReader objectReader = new ObjectMapper().reader();
+        private final Class<T>  classToDeserialze;
+
+        public ObjectDeserializer(Class<T> classToDeserialze) {
+            this.classToDeserialze = classToDeserialze;
+        }
 
         @Override
-        public StockTransaction deserialize(String s, byte[] bytes) {
+        public T deserialize(String s, byte[] bytes) {
             try {
-                return objectReader.readValue(bytes, StockTransaction.class);
+                return objectReader.readValue(bytes, classToDeserialze);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }

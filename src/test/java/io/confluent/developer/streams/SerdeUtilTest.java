@@ -1,8 +1,9 @@
 package io.confluent.developer.streams;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.developer.model.StockTransaction;
 import io.confluent.developer.model.StockTransactionAggregation;
-import io.confluent.developer.proto.StockTransactionAggregationResponse;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.streams.state.ValueAndTimestamp;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,28 +18,34 @@ class SerdeUtilTest {
     private final String topic = "topic";
     private final long currentTimestamp = Instant.now().toEpochMilli();
     private final Serde<StockTransaction> stockTransactionSerde = SerdeUtil.stockTransactionSerde();
-    private final Serde<StockTransactionAggregationResponse> stockTransactionAggregationSerde = SerdeUtil.stockTransactionAggregateSerde();
-    private final Serde<ValueAndTimestamp<StockTransactionAggregationResponse>> stockTransactionAggregationValueAndTimestampSerde = SerdeUtil.valueAndTimestampSerde();
+    private final Serde<JsonNode> stockJsonNodeSerde = SerdeUtil.stockTransactionAggregateJsonNodeSerde();
+    private final Serde<ValueAndTimestamp<JsonNode>> stockTransactionJsonNodeValueAndTimestampSerde = SerdeUtil.valueAndTimestampSerde();
+
+    private final Serde<StockTransactionAggregation> transactionAggregationSerde = SerdeUtil.stockTransactionAggregationSerde();
+
+    private final ObjectMapper mapper = new ObjectMapper();
 
     private StockTransaction originalStockTransaction;
-    private StockTransactionAggregationResponse originalStockTransactionAggregation;
-    private ValueAndTimestamp<StockTransactionAggregationResponse> originalValueAndTimestamp;
+
+    private StockTransactionAggregation originalStockTransactionAggregation;
+    private JsonNode originalJsonNode;
+    private ValueAndTimestamp<JsonNode> originalValueAndTimestamp;
+
 
     @BeforeEach
-    public void setUp() {
+    public void setUp() throws Exception {
        originalStockTransaction = StockTransaction.StockTransactionBuilder.builder().withAmount(100).withSymbol("BWB").withBuy(true).build();
-       originalStockTransactionAggregation = StockTransactionAggregationResponse.newBuilder()
-               .setSymbol(originalStockTransaction.getSymbol())
-               .setBuys(originalStockTransaction.getAmount())
-               .setSells(originalStockTransaction.getAmount()).build();
-       originalValueAndTimestamp = ValueAndTimestamp.make(originalStockTransactionAggregation, currentTimestamp);
+        originalJsonNode = mapper.readTree("{\"symbol\":\""+originalStockTransaction.getSymbol() +
+               "\", \"buys\":"+originalStockTransaction.getAmount()+", \"sells\":" + originalStockTransaction.getAmount() + "}");
+       originalValueAndTimestamp = ValueAndTimestamp.make(originalJsonNode, currentTimestamp);
+       originalStockTransactionAggregation = new StockTransactionAggregation("BWB", 100.00, 100.00);
     }
 
     @Test
     void roundTripStockTransactionAggregateSerdeTest() {
-        byte[] serialized = stockTransactionAggregationSerde.serializer().serialize(topic, originalStockTransactionAggregation);
-        StockTransactionAggregationResponse deserialized = stockTransactionAggregationSerde.deserializer().deserialize(topic, serialized);
-        assertEquals(deserialized, originalStockTransactionAggregation);
+        byte[] serialized = stockJsonNodeSerde.serializer().serialize(topic, originalJsonNode);
+        JsonNode deserialized = stockJsonNodeSerde.deserializer().deserialize(topic, serialized);
+        assertEquals(deserialized, originalJsonNode);
     }
 
     @Test
@@ -50,8 +57,15 @@ class SerdeUtilTest {
 
     @Test
     void roundTripValueAndTimestampSerdeTest() {
-        byte[] serialized = stockTransactionAggregationValueAndTimestampSerde.serializer().serialize(topic, originalValueAndTimestamp);
-        ValueAndTimestamp<StockTransactionAggregationResponse> deserialized = stockTransactionAggregationValueAndTimestampSerde.deserializer().deserialize(topic, serialized);
+        byte[] serialized = stockTransactionJsonNodeValueAndTimestampSerde.serializer().serialize(topic, originalValueAndTimestamp);
+        ValueAndTimestamp<JsonNode> deserialized = stockTransactionJsonNodeValueAndTimestampSerde.deserializer().deserialize(topic, serialized);
         assertEquals(deserialized, originalValueAndTimestamp);
+    }
+
+    @Test
+    void roundTripFromModelObjectToJsonNodeTest() {
+        byte[] serialized = transactionAggregationSerde.serializer().serialize(topic, originalStockTransactionAggregation);
+        JsonNode deserializedNode = stockJsonNodeSerde.deserializer().deserialize(topic, serialized);
+        assertEquals(deserializedNode, originalJsonNode);
     }
 }

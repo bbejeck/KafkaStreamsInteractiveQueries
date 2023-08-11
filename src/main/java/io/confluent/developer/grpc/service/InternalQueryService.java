@@ -2,7 +2,6 @@ package io.confluent.developer.grpc.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.confluent.developer.model.StockTransactionAggregation;
 import io.confluent.developer.proto.InternalQueryGrpc;
 import io.confluent.developer.proto.KeyQueryMetadataProto;
 import io.confluent.developer.proto.KeyQueryRequestProto;
@@ -30,10 +29,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 

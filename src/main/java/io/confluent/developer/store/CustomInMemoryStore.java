@@ -64,7 +64,7 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
         Serializer<K> keySerializer = filteredRangeQuery.keySerde().serializer();
         Deserializer<K> keyDeserializer = filteredRangeQuery.keySerde().deserializer();
         Deserializer<V> valueDeserializer = filteredRangeQuery.valueSerde().deserializer();
-        BiPredicate<K, V> predicate = filteredRangeQuery.predicate();
+        String predicate = filteredRangeQuery.predicate();
         List<KeyValue<K, V>> filteredResults = new ArrayList<>();
         K lowerBound = filteredRangeQuery.lowerBound().orElse(null);
         K upperBound = filteredRangeQuery.upperBound().orElse(null);
@@ -74,9 +74,9 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
             unfilteredRangeResults.forEachRemaining(bytesKeyValue -> {
                 K key = keyDeserializer.deserialize(null, bytesKeyValue.key.get());
                 V value = valueDeserializer.deserialize(null, bytesKeyValue.value);
-                if (predicate.test(key, value)) {
+
                     filteredResults.add(KeyValue.pair(key, value));
-                }
+
             });
             return (QueryResult<R>) QueryResult.forResult(new InMemoryKeyValueIterator(filteredResults.iterator()));
         }
