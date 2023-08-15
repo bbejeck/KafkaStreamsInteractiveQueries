@@ -1,5 +1,9 @@
 package io.confluent.developer.store;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jayway.jsonpath.JsonPath;
 import io.confluent.developer.query.CustomQuery;
 import io.confluent.developer.query.FilteredRangeQuery;
 import io.confluent.developer.query.MultiKeyQuery;
@@ -30,6 +34,8 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
     private StateStoreContext context;
 
     private final Time time = Time.SYSTEM;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public CustomInMemoryStore(String name) {
         super(name);
@@ -65,7 +71,8 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
         Deserializer<K> keyDeserializer = filteredRangeQuery.keySerde().deserializer();
         Deserializer<V> valueDeserializer = filteredRangeQuery.valueSerde().deserializer();
         String predicate = filteredRangeQuery.predicate();
-        List<KeyValue<K, V>> filteredResults = new ArrayList<>();
+        List<KeyValue<K, V>> allResults = new ArrayList<>();
+        List<KeyValue<K, V>> filteredResults;
         K lowerBound = filteredRangeQuery.lowerBound().orElse(null);
         K upperBound = filteredRangeQuery.upperBound().orElse(null);
         try (KeyValueIterator<Bytes, byte[]> unfilteredRangeResults = range(Bytes.wrap(keySerializer.serialize(null, lowerBound)),
@@ -75,10 +82,14 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
                 K key = keyDeserializer.deserialize(null, bytesKeyValue.key.get());
                 V value = valueDeserializer.deserialize(null, bytesKeyValue.value);
 
-                    filteredResults.add(KeyValue.pair(key, value));
+                    allResults.add(KeyValue.pair(key, value));
 
             });
+            List<V> filteredValues = JsonPath.parse(objectMapper.writeValueAsString(allResults)).read("$.[?" + predicate + "]");
+            filteredResults = filteredValues.stream().map(v -> (KeyValue<K, V>) KeyValue.pair(((JsonNode)v).get("symbol").textValue(), v)).toList();
             return (QueryResult<R>) QueryResult.forResult(new InMemoryKeyValueIterator(filteredResults.iterator()));
+        } catch (JsonProcessingException jpe) {
+            throw new RuntimeException(jpe);
         }
     }
 

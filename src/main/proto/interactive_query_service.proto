@@ -37,21 +37,10 @@ message RangeQueryRequestProto {
 
 message QueryResponseProto {
   string error_message = 1;
-  map<string, google.protobuf.ListValue> execution_info = 2;
-  string host_type = 3;
-  oneof results {
-    SingleResultProto single_result = 4;
-    MultipleResultProto multiple_results = 5;
-  }
+  repeated string execution_info = 2;
+  string host_info = 3;
+  repeated string json_results = 4;
 }
-
-message SingleResultProto {
-  string json_result = 1;
-}
-message MultipleResultProto {
-  repeated string json_results = 1;
-}
-
 message Empty {}
 
 service InternalQuery {

@@ -1,7 +1,7 @@
 package io.confluent.developer.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import io.confluent.developer.model.StockTransactionAggregation;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.developer.proto.InternalQueryGrpc;
 import io.confluent.developer.proto.KeyQueryMetadataProto;
 import io.confluent.developer.proto.KeyQueryRequestProto;
@@ -70,6 +70,8 @@ public class StockController {
     private String applicationServer;
 
     private HostInfo thisHostInfo;
+
+    private ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
 
     private static final int MAX_RETRIES = 3;
@@ -94,12 +96,13 @@ public class StockController {
     public void init() {
         String[] parts = applicationServer.split(":");
         thisHostInfo = new HostInfo(parts[0], Integer.parseInt(parts[1]));
+        objectMapper = new ObjectMapper();
     }
 
     @GetMapping(value = "/range")
     public QueryResponse<List<JsonNode>> getAggregationRange(@RequestParam(required = false) String lower,
-                                                                                @RequestParam(required = false) String upper,
-                                                                                @RequestParam(required = false) String filter) {
+                                                             @RequestParam(required = false) String upper,
+                                                             @RequestParam(required = false) String filter) {
 
         Collection<StreamsMetadata> streamsMetadata = kafkaStreams.streamsMetadataForStore(storeName);
         List<JsonNode> aggregations = new ArrayList<>();
@@ -111,7 +114,7 @@ public class StockController {
                     Optional.empty(),
                     lower,
                     upper,
-                   filter);
+                    filter);
             if (!queryResponse.hasError()) {
                 aggregations.addAll(queryResponse.getResult());
             } else {
@@ -132,9 +135,9 @@ public class StockController {
 
     @GetMapping(value = "/internal/range")
     public QueryResponse<List<JsonNode>> getAggregationRangeInternal(@RequestParam(required = false) String lower,
-                                                                                        @RequestParam(required = false) String upper,
-                                                                                        @RequestParam(required = false) List<Integer> partitions,
-                                                                                        @RequestParam(required = false) String filterJson) {
+                                                                     @RequestParam(required = false) String upper,
+                                                                     @RequestParam(required = false) List<Integer> partitions,
+                                                                     @RequestParam(required = false) String filterJson) {
         Optional<Set<Integer>> optionalPartitions;
         if (partitions != null && !partitions.isEmpty()) {
             optionalPartitions = Optional.of(new HashSet<>(partitions));
@@ -147,14 +150,14 @@ public class StockController {
     }
 
     private QueryResponse<List<JsonNode>> doRangeQuery(final HostInfo targetHostInfo,
-                                                                          final Optional<Set<Integer>> partitions,
-                                                                          final Optional<PositionBound> positionBound,
-                                                                          final String lower,
-                                                                          final String upper,
-                                                                          final String filterJson) {
-        
+                                                       final Optional<Set<Integer>> partitions,
+                                                       final Optional<PositionBound> positionBound,
+                                                       final String lower,
+                                                       final String upper,
+                                                       final String filterJson) {
+
         Query<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> rangeQuery = createRangeQuery(lower, upper, filterJson);
-        
+
         StateQueryRequest<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> queryRequest = StateQueryRequest.inStore(storeName).withQuery(rangeQuery);
         if (partitions.isPresent() && !partitions.get().isEmpty()) {
             queryRequest = queryRequest.withPartitions(partitions.get());
@@ -186,7 +189,7 @@ public class StockController {
         }
         HostInfo activeHost = keyMetadata.activeHost();
         Set<HostInfo> standbyHosts = keyMetadata.standbyHosts();
-        KeyQuery<String, ValueAndTimestamp<StockTransactionAggregation>> keyQuery = KeyQuery.withKey(symbol);
+        KeyQuery<String, ValueAndTimestamp<JsonNode>> keyQuery = KeyQuery.withKey(symbol);
         QueryResponse<JsonNode> queryResponse = doKeyQuery(activeHost, keyQuery, keyMetadata, symbol, HostStatus.ACTIVE);
         if (queryResponse.hasError() && !standbyHosts.isEmpty()) {
             Optional<QueryResponse<JsonNode>> standbyResponse = standbyHosts.stream()
@@ -200,12 +203,12 @@ public class StockController {
         return queryResponse;
     }
 
-    @GetMapping(value="/multikey/{symbols}")
+    @GetMapping(value = "/multikey/{symbols}")
     /*
       Organize by partition -> KeyQueryMetadata -> list symbols
      */
     public QueryResponse<List<String>> getMultiAggregationKeyQuery(@PathVariable List<String> symbols) {
-        Map<KeyQueryMetadata, Set<String>> metadataSymbolMap =  new HashMap<>();
+        Map<KeyQueryMetadata, Set<String>> metadataSymbolMap = new HashMap<>();
         symbols.forEach(symbol -> {
             KeyQueryMetadata metadata = getKeyMetadata(symbol, Serdes.String().serializer());
             if (metadata != null) {
@@ -229,11 +232,11 @@ public class StockController {
             HostInfo targetHostInfo = keyMetadata.activeHost();
             if (keyMetadata.activeHost().equals(thisHostInfo)) {
                 Set<Integer> partitionSet = Collections.singleton(keyMetadata.partition());
-                MultiKeyQuery<String,ValueAndTimestamp<JsonNode>> multiKeyQuery = MultiKeyQuery
-                        .<String,ValueAndTimestamp<JsonNode>>withKeys(symbols)
+                MultiKeyQuery<String, ValueAndTimestamp<JsonNode>> multiKeyQuery = MultiKeyQuery
+                        .<String, ValueAndTimestamp<JsonNode>>withKeys(symbols)
                         .keySerde(stringSerde)
                         .valueSerde(txnSerde);
-                StateQueryResult<KeyValueIterator<String,ValueAndTimestamp<JsonNode>>> stateQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+                StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> stateQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                         .withQuery(multiKeyQuery)
                         .withPartitions(partitionSet));
                 intermediateResults.addAll(extractStateQueryResults(stateQueryResult));
@@ -243,7 +246,7 @@ public class StockController {
                 String host = targetHostInfo.host();
                 // By convention all gRPC ports are Kafka Streams host port - 2000
                 int port = targetHostInfo.port() - 2000;
-                queryResponse = doRemoteKeyRequest(host, port, keyMetadata.partition(), symbols);
+                queryResponse = doRemoteMultiKeyQuery(host, port, keyMetadata.partition(), symbols);
                 intermediateResults.addAll(queryResponse.getResult());
             }
         });
@@ -253,46 +256,66 @@ public class StockController {
 
 
     private QueryResponse<JsonNode> doKeyQuery(final HostInfo targetHostInfo,
-                                                                  final Query<ValueAndTimestamp<StockTransactionAggregation>> query,
-                                                                  final KeyQueryMetadata keyMetadata,
-                                                                  final String symbol,
-                                                                  final HostStatus hostStatus) {
+                                               final Query<ValueAndTimestamp<JsonNode>> query,
+                                               final KeyQueryMetadata keyMetadata,
+                                               final String symbol,
+                                               final HostStatus hostStatus) {
         QueryResponse<JsonNode> queryResponse;
         if (targetHostInfo.equals(thisHostInfo)) {
             Set<Integer> partitionSet = Collections.singleton(keyMetadata.partition());
-            StateQueryResult<ValueAndTimestamp<StockTransactionAggregation>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+            StateQueryResult<ValueAndTimestamp<JsonNode>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                     .withQuery(query)
                     .withPartitions(partitionSet));
-            QueryResult<ValueAndTimestamp<StockTransactionAggregation>> queryResult = keyQueryResult.getOnlyPartitionResult();
-            JsonNode stockTransactionAggregationResponse = null;
-            queryResponse = QueryResponse.withResult(stockTransactionAggregationResponse);
+            QueryResult<ValueAndTimestamp<JsonNode>> queryResult = keyQueryResult.getOnlyPartitionResult();
+            queryResponse = QueryResponse.withResult(objectMapper.valueToTree(queryResult.getResult().value()));
             queryResponse.setHostType(hostStatus.name() + "-" + targetHostInfo.host() + ":" + targetHostInfo.port());
         } else {
             String host = targetHostInfo.host();
             // By convention all gRPC ports are Kafka Streams host port - 2000
             int port = targetHostInfo.port() - 2000;
-            queryResponse = doRemoteKeyRequest(host, port, keyMetadata.partition(), Collections.singleton(symbol));
+            queryResponse = doRemoteKeyQuery(host, port, keyMetadata.partition(), symbol);
         }
         return queryResponse;
     }
 
 
-    private <V> QueryResponse<V> doRemoteKeyRequest(String host, int port, int partition, Set<String> symbols) {
+    private <V> QueryResponse<V> doRemoteKeyQuery(final String host,
+                                                  final int port,
+                                                  final int partition,
+                                                  final String symbol) {
         QueryResponse<V> remoteResponse;
         ManagedChannel channel = null;
         try {
             channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
             InternalQueryGrpc.InternalQueryBlockingStub blockingStub = InternalQueryGrpc.newBlockingStub(channel);
             KeyQueryMetadataProto keyQueryMetadata = KeyQueryMetadataProto.newBuilder().setPartition(partition).build();
-            QueryResponseProto aggregationResponse = null;
-            if (symbols.size() > 1) {
-             KeyQueryRequestProto keyQueryRequest = KeyQueryRequestProto.newBuilder().setSymbol(symbols.iterator().next()).setKeyQueryMetadata(keyQueryMetadata).build();
-             aggregationResponse = blockingStub.getAggregationForSymbol(keyQueryRequest);
-            } else {
-                MultKeyQueryRequestProto multipleRequest = MultKeyQueryRequestProto.newBuilder().addAllSymbols(symbols).setKeyQueryMetadata(keyQueryMetadata).build();
-                aggregationResponse = blockingStub.getAggregationsForSymbols(multipleRequest);
+
+            KeyQueryRequestProto keyQueryRequest = KeyQueryRequestProto.newBuilder().setSymbol(symbol).setKeyQueryMetadata(keyQueryMetadata).build();
+            QueryResponseProto queryResponseProto = blockingStub.getAggregationForSymbol(keyQueryRequest);
+
+            remoteResponse = (QueryResponse<V>) QueryResponse.withResult(queryResponseProto.getJsonResultsList());
+            remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
+        } catch (StatusRuntimeException exception) {
+            remoteResponse = QueryResponse.withError(exception.getMessage());
+        } finally {
+            if (channel != null) {
+                channel.shutdown();
             }
-            remoteResponse = (QueryResponse<V>) QueryResponse.withResult(aggregationResponse);
+        }
+        return remoteResponse;
+    }
+
+    private <V> QueryResponse<V> doRemoteMultiKeyQuery(String host, int port, int partition, Set<String> symbols) {
+        QueryResponse<V> remoteResponse;
+        ManagedChannel channel = null;
+        try {
+            channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+            InternalQueryGrpc.InternalQueryBlockingStub blockingStub = InternalQueryGrpc.newBlockingStub(channel);
+            KeyQueryMetadataProto keyQueryMetadata = KeyQueryMetadataProto.newBuilder().setPartition(partition).build();
+
+            MultKeyQueryRequestProto multipleRequest = MultKeyQueryRequestProto.newBuilder().addAllSymbols(symbols).setKeyQueryMetadata(keyQueryMetadata).build();
+            QueryResponseProto multiKeyResponseProto = blockingStub.getAggregationsForSymbols(multipleRequest);
+            remoteResponse = (QueryResponse<V>) QueryResponse.withResult(multiKeyResponseProto.getJsonResultsList());
             remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
         } catch (StatusRuntimeException exception) {
             remoteResponse = QueryResponse.withError(exception.getMessage());
@@ -338,8 +361,8 @@ public class StockController {
 
     private List<StreamsMetadata> getStandbyClients(final StreamsMetadata currentClient, Collection<StreamsMetadata> candidates) {
         return candidates.stream().filter(streamClient -> !streamClient.equals(currentClient) &&
-                        streamClient.standbyStateStoreNames().contains(storeName) &&
-                        !getStandbyTopicPartitions(currentClient, streamClient).isEmpty()).toList();
+                streamClient.standbyStateStoreNames().contains(storeName) &&
+                !getStandbyTopicPartitions(currentClient, streamClient).isEmpty()).toList();
     }
 
     private Set<TopicPartition> getStandbyTopicPartitions(StreamsMetadata currentClient, StreamsMetadata standbyCandidate) {
@@ -349,7 +372,7 @@ public class StockController {
     }
 
     private Query<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> createRangeQuery(String lower, String upper, String jsonPredicate) {
-        if(isNotBlank(jsonPredicate)) {
+        if (isNotBlank(jsonPredicate)) {
             return createFilteredRangeQuery(lower, upper, jsonPredicate);
         } else {
             if (isBlank(lower) && isBlank(upper)) {

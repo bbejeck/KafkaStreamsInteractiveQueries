@@ -1,17 +1,24 @@
 package io.confluent.developer;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.developer.model.StockTransaction;
 import io.confluent.developer.model.StockTransactionAggregation;
 import io.confluent.developer.query.QueryResponse;
+import io.confluent.developer.streams.KafkaStreamsContainer;
 import io.confluent.developer.streams.SerdeUtil;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.apache.kafka.common.utils.Time;
+import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.ThreadMetadata;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -22,6 +29,7 @@ import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.PropertiesPropertySource;
 import org.springframework.core.env.StandardEnvironment;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 import org.testcontainers.containers.KafkaContainer;
@@ -35,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Random;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -43,6 +52,7 @@ import static org.hamcrest.Matchers.*;
 
 
 @Testcontainers
+@DirtiesContext
 class InteractiveQueriesIntegrationTest {
 
     private final RestTemplate restTemplate = new RestTemplate();
@@ -59,6 +69,8 @@ class InteractiveQueriesIntegrationTest {
     private static final String SYMBOL_TWO = "ZELK";
 
     private final Random random  = new Random();
+    private final ObjectMapper mapper = new ObjectMapper();
+    int portToSet;
     
     @Container
     //KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.4.1.arm64"));
@@ -103,12 +115,13 @@ class InteractiveQueriesIntegrationTest {
         // Time for Kafka Streams to process records
         time.sleep(5000);
         try {
-            QueryResponse<StockTransactionAggregation> appOneResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_ONE);
-            assertThat(appOneResult.getResult().getSymbol(), is(SYMBOL_ONE));
+
+            QueryResponse<JsonNode> appOneResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_ONE);
+            assertThat(appOneResult.getResult().get("symbol"), is(SYMBOL_ONE));
             assertThat(appOneResult.getHostType(), containsString("ACTIVE"));
 
-            QueryResponse<StockTransactionAggregation> appTwoResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_TWO);
-            assertThat(appTwoResult.getResult().getSymbol(), is(SYMBOL_TWO));
+            QueryResponse<JsonNode> appTwoResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_TWO);
+            assertThat(appTwoResult.getResult().get("symbol"), is(SYMBOL_TWO));
             assertThat(appTwoResult.getHostType(), containsString("ACTIVE"));
 
             contextTwo.close();
@@ -117,12 +130,12 @@ class InteractiveQueriesIntegrationTest {
             }
 
             appOneResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_ONE);
-            assertThat(appOneResult.getResult().getSymbol(), is(SYMBOL_ONE));
+            assertThat(appOneResult.getResult().get("symbol"), is(SYMBOL_ONE));
             assertThat(appOneResult.getHostType(), containsString("STANDBY"));
             assertThat(appOneResult.getHostType(), containsString(Integer.toString(APP_ONE_PORT)));
 
             appTwoResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_TWO);
-            assertThat(appTwoResult.getResult().getSymbol(), is(SYMBOL_TWO));
+            assertThat(appTwoResult.getResult().get("symbol"), is(SYMBOL_TWO));
             assertThat(appTwoResult.getHostType(), containsString("ACTIVE"));
             assertThat(appTwoResult.getHostType(), containsString(Integer.toString(APP_ONE_PORT)));
 
@@ -154,12 +167,26 @@ class InteractiveQueriesIntegrationTest {
         produceInputRecords(3, SYMBOL_ONE, SYMBOL_TWO);
 
 
+        KafkaStreamsContainer streamsContainer = contextOne.getBean(KafkaStreamsContainer.class);
+        KafkaStreams kafkaStreams = streamsContainer.kafkaStreams();
+        Set<ThreadMetadata> metadataSet = kafkaStreams.metadataForLocalThreads();
+        metadataSet.forEach((threadMetadata -> {
+            threadMetadata.activeTasks().forEach((active -> {
+                TopicPartition tp = active.topicPartitions().iterator().next();
+                if(tp.partition() == 1) {
+                    portToSet = APP_TWO_PORT;
+                } else {
+                    portToSet = APP_ONE_PORT;
+                }
+            }));
+        }));
+
         // Time for Kafka Streams to process records
         time.sleep(5000);
         try {
-            QueryResponse<StockTransactionAggregation> appOneResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_TWO);
-            assertThat(appOneResult.getResult().getSymbol(), is(SYMBOL_TWO));
-            assertThat(appOneResult.getHostType(), containsString("ACTIVE_GRPC-localhost:5089"));
+            QueryResponse<JsonNode> appOneResult = queryForSingleResult(portToSet, "streams-iq/keyquery/" + SYMBOL_TWO);
+            assertThat(appOneResult.getResult().get("symbol").asText(), is(SYMBOL_TWO));
+            assertThat(appOneResult.getHostType(), containsString("ACTIVE_GRPC"));
         } finally {
             contextOne.close();
             if (contextTwo.isRunning()) {
@@ -248,14 +275,16 @@ class InteractiveQueriesIntegrationTest {
     }
 
     @SuppressWarnings("unchecked")
-    private QueryResponse<StockTransactionAggregation> queryForSingleResult(int port, String path) {
-        QueryResponse<LinkedHashMap<String, Object>> response = restTemplate.getForObject("http://localhost:" + port + "/" + path, QueryResponse.class);
-        String symbol = (String) response.getResult().get("symbol");
-        double buys = (double) response.getResult().get("buys");
-        double sells = (double) response.getResult().get("sells");
-        QueryResponse<StockTransactionAggregation> queryResponse = QueryResponse.withResult(new StockTransactionAggregation(symbol, buys, sells));
-        queryResponse.setHostType(response.getHostType());
-        return queryResponse;
+    private QueryResponse<JsonNode> queryForSingleResult(int port, String path)  {
+        QueryResponse<List<String>> response = restTemplate.getForObject("http://localhost:" + port + "/" + path, QueryResponse.class);
+        try {
+            QueryResponse<JsonNode> singleResult = QueryResponse.withResult(mapper.readTree(response.getResult().get(0)));
+            singleResult.setHostType(response.getHostType());
+
+            return singleResult;
+        } catch (JsonProcessingException jse) {
+            throw new RuntimeException(jse);
+        }
     }
 
     @SuppressWarnings("unchecked")

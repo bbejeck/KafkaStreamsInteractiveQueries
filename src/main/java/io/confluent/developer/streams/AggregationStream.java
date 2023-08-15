@@ -1,5 +1,8 @@
 package io.confluent.developer.streams;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.confluent.developer.config.KafkaStreamsAppConfiguration;
 import io.confluent.developer.model.StockTransaction;
 import io.confluent.developer.model.StockTransactionAggregation;
@@ -10,6 +13,7 @@ import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.kstream.Consumed;
+import org.apache.kafka.streams.kstream.Initializer;
 import org.apache.kafka.streams.kstream.KStream;
 import org.apache.kafka.streams.kstream.Materialized;
 import org.apache.kafka.streams.kstream.Produced;
@@ -30,8 +34,15 @@ public class AggregationStream {
     }
 
     private final Serde<String> stringSerde = Serdes.String();
-    private final Serde<StockTransactionAggregation> aggregationSerde = SerdeUtil.stockTransactionAggregationSerde();
     private final Serde<StockTransaction> stockTransactionSerde = SerdeUtil.stockTransactionSerde();
+    private final Serde<JsonNode> jsonNodeSerde = SerdeUtil.stockTransactionAggregateJsonNodeSerde();
+
+    private final Initializer<JsonNode> initializer = () -> {
+        ObjectNode objectNode = JsonNodeFactory.instance.objectNode();
+        objectNode.put("sells", 0.0);
+        objectNode.put("buys", 0.0);
+        return objectNode;
+    };
 
     public Topology topology() {
         StreamsBuilder builder = new StreamsBuilder();
@@ -42,15 +53,27 @@ public class AggregationStream {
                         " key " + k + " value " + v));
 
         KeyValueBytesStoreSupplier supplier = CustomStores.customInMemoryBytesStoreSupplier(streamsConfiguration.storeName());
-        Materialized<String, StockTransactionAggregation, KeyValueStore<Bytes, byte[]>> materialized = Materialized.as(supplier);
-        materialized.withKeySerde(stringSerde).withValueSerde(aggregationSerde);
+        Materialized<String, JsonNode, KeyValueStore<Bytes, byte[]>> materialized = Materialized.as(supplier);
+        materialized.withKeySerde(stringSerde).withValueSerde(jsonNodeSerde);
 
         input.groupByKey()
-                .aggregate(StockTransactionAggregation::new,
-                        (k, v, agg) -> agg.update(v), materialized )
+                .aggregate(initializer,
+                        (k, v, agg) ->  {
+                             ObjectNode objNode = (ObjectNode) agg;
+                             if (!objNode.has("symbol")) {
+                                 objNode.put("symbol", v.getSymbol());
+                             }
+                             if(v.getBuy()) {
+                                 objNode.put("buys", objNode.get("buys").asDouble() + v.getAmount());
+                             } else {
+                                 objNode.put("sells", objNode.get("sells").asDouble() + v.getAmount());
+                             }
+                             return objNode;
+
+                        }, materialized )
                 .toStream()
                 .peek((k, v) -> System.out.println("Aggregation result key " + k + " value " + v))
-                .to(streamsConfiguration.outputTopic(), Produced.with(stringSerde, aggregationSerde));
+                .to(streamsConfiguration.outputTopic(), Produced.with(stringSerde, jsonNodeSerde));
 
         return builder.build();
     }

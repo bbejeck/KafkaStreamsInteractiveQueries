@@ -6,10 +6,8 @@ import io.confluent.developer.proto.InternalQueryGrpc;
 import io.confluent.developer.proto.KeyQueryMetadataProto;
 import io.confluent.developer.proto.KeyQueryRequestProto;
 import io.confluent.developer.proto.MultKeyQueryRequestProto;
-import io.confluent.developer.proto.MultipleResultProto;
 import io.confluent.developer.proto.QueryResponseProto;
 import io.confluent.developer.proto.RangeQueryRequestProto;
-import io.confluent.developer.proto.SingleResultProto;
 import io.confluent.developer.query.FilteredRangeQuery;
 import io.confluent.developer.query.MultiKeyQuery;
 import io.confluent.developer.streams.SerdeUtil;
@@ -29,8 +27,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -40,9 +40,11 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
 
     private final KafkaStreams kafkaStreams;
     @Value("${store.name}")
-    private String storeName;
-    private Serde<String> stringSerde;
-    private Serde<ValueAndTimestamp<JsonNode>> valueAndTimestampSerde;
+    String storeName;
+    // protected scope for testing
+    Serde<String> stringSerde;
+    // protected scope for testing
+    Serde<ValueAndTimestamp<JsonNode>> valueAndTimestampSerde;
 
     @Autowired
     public InternalQueryService(KafkaStreams kafkaStreams) {
@@ -70,7 +72,9 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
 
         final QueryResponseProto.Builder repsonseBuilder = QueryResponseProto.newBuilder();
         JsonNode aggregation = queryResult.getResult().value();
-        repsonseBuilder.setSingleResult(SingleResultProto.newBuilder().setJsonResult(aggregation.textValue()).build());
+        repsonseBuilder.addAllExecutionInfo(queryResult.getExecutionInfo());
+        ((ObjectNode)aggregation).put("timestamp", queryResult.getResult().timestamp());
+        repsonseBuilder.addJsonResults(aggregation.toString());
         responseObserver.onNext(repsonseBuilder.build());
         responseObserver.onCompleted();
    }
@@ -89,17 +93,17 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
 
         final QueryResponseProto.Builder repsonseBuilder = QueryResponseProto.newBuilder();
 
-        MultipleResultProto.Builder builder = MultipleResultProto.newBuilder();
+        List<String> jsonResults = new ArrayList<>();
         allPartitionResults.forEach((k,v) -> {
             var keyValues = v.getResult();
             keyValues.forEachRemaining(kv -> {
                 long timestamp = kv.value.timestamp();
                 JsonNode node = kv.value.value();
                 ((ObjectNode) node).put("timestamp", timestamp);
-                builder.addJsonResults(node.textValue());
+                jsonResults.add(node.toString());
             });
         });
-        repsonseBuilder.setMultipleResults(builder.build());
+        repsonseBuilder.addAllJsonResults(jsonResults);
         responseObserver.onNext(repsonseBuilder.build());
         responseObserver.onCompleted();
     }
@@ -114,17 +118,15 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
                 .withPartitions(partitionSet));
         final QueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> queryResult = keyQueryResult.getOnlyPartitionResult();
 
-        final QueryResponseProto.Builder repsonseBuilder = QueryResponseProto.newBuilder();
         KeyValueIterator<String, ValueAndTimestamp<JsonNode>> aggregations = queryResult.getResult();
-        MultipleResultProto.Builder builder = MultipleResultProto.newBuilder();
+        List<String> jsonResults = new ArrayList<>();
         aggregations.forEachRemaining(kv -> {
             JsonNode node = kv.value.value();
             long timestamp = kv.value.timestamp();
             ((ObjectNode)node).put("timestamp", timestamp);
-            builder.addJsonResults(node.textValue());
+            jsonResults.add(node.toString());
         });
-        repsonseBuilder.setMultipleResults(builder.build());
-        responseObserver.onNext(repsonseBuilder.build());
+        responseObserver.onNext(QueryResponseProto.newBuilder().addAllJsonResults(jsonResults).build());
         responseObserver.onCompleted();
     }
 }
