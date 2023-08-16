@@ -1,7 +1,9 @@
 package io.confluent.developer.controller;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.confluent.developer.proto.InternalQueryGrpc;
 import io.confluent.developer.proto.KeyQueryMetadataProto;
 import io.confluent.developer.proto.KeyQueryRequestProto;
@@ -267,7 +269,9 @@ public class StockController {
                     .withQuery(query)
                     .withPartitions(partitionSet));
             QueryResult<ValueAndTimestamp<JsonNode>> queryResult = keyQueryResult.getOnlyPartitionResult();
-            queryResponse = QueryResponse.withResult(objectMapper.valueToTree(queryResult.getResult().value()));
+            JsonNode resultNode = queryResult.getResult().value();
+            ((ObjectNode)resultNode).put("timestamp", queryResult.getResult().timestamp());
+            queryResponse = QueryResponse.withResult(resultNode);
             queryResponse.setHostType(hostStatus.name() + "-" + targetHostInfo.host() + ":" + targetHostInfo.port());
         } else {
             String host = targetHostInfo.host();
@@ -292,10 +296,10 @@ public class StockController {
 
             KeyQueryRequestProto keyQueryRequest = KeyQueryRequestProto.newBuilder().setSymbol(symbol).setKeyQueryMetadata(keyQueryMetadata).build();
             QueryResponseProto queryResponseProto = blockingStub.getAggregationForSymbol(keyQueryRequest);
-
-            remoteResponse = (QueryResponse<V>) QueryResponse.withResult(queryResponseProto.getJsonResultsList());
+            JsonNode node = objectMapper.readTree(queryResponseProto.getJsonResultsList().get(0));
+            remoteResponse = (QueryResponse<V>) QueryResponse.withResult(node);
             remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
-        } catch (StatusRuntimeException exception) {
+        } catch (StatusRuntimeException |JsonProcessingException exception) {
             remoteResponse = QueryResponse.withError(exception.getMessage());
         } finally {
             if (channel != null) {

@@ -1,8 +1,11 @@
 package io.confluent.developer.store;
 
+import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jayway.jsonpath.Filter;
 import com.jayway.jsonpath.JsonPath;
 import io.confluent.developer.query.CustomQuery;
 import io.confluent.developer.query.FilteredRangeQuery;
@@ -27,8 +30,11 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.BiPredicate;
+
+import static java.util.stream.Collectors.toList;
 
 public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
     private StateStoreContext context;
@@ -44,6 +50,7 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
     @Override
     public void init(StateStoreContext context, StateStore root) {
         this.context = context;
+        objectMapper.setVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY);
         super.init(context, root);
     }
 
@@ -68,10 +75,9 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
                                                         final PositionBound positionBound,
                                                         final QueryConfig queryConfig) {
         Serializer<K> keySerializer = filteredRangeQuery.keySerde().serializer();
-        Deserializer<K> keyDeserializer = filteredRangeQuery.keySerde().deserializer();
         Deserializer<V> valueDeserializer = filteredRangeQuery.valueSerde().deserializer();
         String predicate = filteredRangeQuery.predicate();
-        List<KeyValue<K, V>> allResults = new ArrayList<>();
+        List<V> allValues = new ArrayList<>();
         List<KeyValue<K, V>> filteredResults;
         K lowerBound = filteredRangeQuery.lowerBound().orElse(null);
         K upperBound = filteredRangeQuery.upperBound().orElse(null);
@@ -79,14 +85,12 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
                 Bytes.wrap(keySerializer.serialize(null, upperBound)))) {
 
             unfilteredRangeResults.forEachRemaining(bytesKeyValue -> {
-                K key = keyDeserializer.deserialize(null, bytesKeyValue.key.get());
                 V value = valueDeserializer.deserialize(null, bytesKeyValue.value);
-
-                    allResults.add(KeyValue.pair(key, value));
-
+                    allValues.add(value);
             });
-            List<V> filteredValues = JsonPath.parse(objectMapper.writeValueAsString(allResults)).read("$.[?" + predicate + "]");
-            filteredResults = filteredValues.stream().map(v -> (KeyValue<K, V>) KeyValue.pair(((JsonNode)v).get("symbol").textValue(), v)).toList();
+            
+            List<Map<String, Object>> filteredValues = JsonPath.parse(objectMapper.writeValueAsString(allValues)).read("$..value[?(" + predicate + ")]");
+            filteredResults = filteredValues.stream().map(v -> (KeyValue<K, V>) KeyValue.pair(v.get("symbol"), v)).toList();
             return (QueryResult<R>) QueryResult.forResult(new InMemoryKeyValueIterator(filteredResults.iterator()));
         } catch (JsonProcessingException jpe) {
             throw new RuntimeException(jpe);
