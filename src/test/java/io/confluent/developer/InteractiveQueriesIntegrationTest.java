@@ -1,5 +1,7 @@
 package io.confluent.developer;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.developer.model.StockTransaction;
 import io.confluent.developer.model.StockTransactionAggregation;
@@ -36,6 +38,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -149,7 +152,6 @@ class InteractiveQueriesIntegrationTest {
                 contextTwo.close();
             }
         }
-
     }
 
     @Test
@@ -277,11 +279,53 @@ class InteractiveQueriesIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("MultiKey Query tests")
+    void testMultiKeyQuery() {
+
+        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT, kafka.getBootstrapServers());
+        while (!contextOne.isRunning()) {
+            time.sleep(500);
+        }
+
+        time.sleep(5000);
+        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT, kafka.getBootstrapServers());
+        while ((!contextTwo.isRunning())) {
+            time.sleep(500);
+        }
+
+        time.sleep(5000);
+        produceInputRecords(3, SYMBOL_ONE, SYMBOL_TWO, "GOOGL", "SHMDF", "TWTR", "MSFT");
+
+
+        // Time for Kafka Streams to process records
+        time.sleep(5000);
+        try {
+
+            List<String> expectedSymbols = Arrays.asList(SYMBOL_ONE, SYMBOL_TWO, "GOOGL", "SHMDF", "TWTR", "MSFT");
+            String allKeys = String.join(",", expectedSymbols);
+            QueryResponse<List<JsonNode>> multiKeyResults = queryForMultipleKeys(APP_ONE_PORT, "streams-iq/multikey/" + allKeys);
+            assertThat(expectedSymbols, containsInAnyOrder(multiKeyResults.getResult().stream().map(jsonNode -> jsonNode.get("symbol").asText()).toArray()));
+
+        } finally {
+            contextOne.close();
+            if (contextTwo.isRunning()) {
+                contextTwo.close();
+            }
+        }
+    }
+
     @SuppressWarnings("unchecked")
     private QueryResponse<Map> queryForSingleResult(int port, String path) {
         QueryResponse<Map> response = restTemplate.getForObject("http://localhost:" + port + "/" + path, QueryResponse.class);
         return response;
 
+    }
+
+    private QueryResponse<List<JsonNode>> queryForMultipleKeys(int port, String path) {
+        QueryResponse<List<LinkedHashMap<String, Object>>> response =  restTemplate.getForObject("http://localhost:" + port + "/" + path, QueryResponse.class);
+        List<JsonNode> jsonNodeList = response.getResult().stream().map( lhm -> mapper.convertValue(lhm, JsonNode.class)).toList();
+        return QueryResponse.withResult(jsonNodeList);
     }
 
     @SuppressWarnings("unchecked")

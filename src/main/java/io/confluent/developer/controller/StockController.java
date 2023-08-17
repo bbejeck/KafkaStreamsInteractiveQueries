@@ -209,7 +209,7 @@ public class StockController {
     /*
       Organize by partition -> KeyQueryMetadata -> list symbols
      */
-    public QueryResponse<List<String>> getMultiAggregationKeyQuery(@PathVariable List<String> symbols) {
+    public QueryResponse<List<JsonNode>> getMultiAggregationKeyQuery(@PathVariable List<String> symbols) {
         Map<KeyQueryMetadata, Set<String>> metadataSymbolMap = new HashMap<>();
         symbols.forEach(symbol -> {
             KeyQueryMetadata metadata = getKeyMetadata(symbol, Serdes.String().serializer());
@@ -217,17 +217,14 @@ public class StockController {
                 metadataSymbolMap.computeIfAbsent(metadata, k -> new HashSet<>()).add(symbol);
             }
         });
-
-        List<String> querySymbols = new ArrayList<>();
-        querySymbols.add("Received multiple params - formatted as a list");
-        querySymbols.addAll(symbols);
-        return QueryResponse.withResult(querySymbols);
+        return doMultiKeyQuery(metadataSymbolMap);
     }
 
 
     private QueryResponse<List<JsonNode>> doMultiKeyQuery(final Map<KeyQueryMetadata, Set<String>> metadataSymbolMap) {
 
         List<JsonNode> intermediateResults = new ArrayList<>();
+        List<String> hostList = new ArrayList<>();
         Serde<String> stringSerde = Serdes.String();
         Serde<ValueAndTimestamp<JsonNode>> txnSerde = SerdeUtil.valueAndTimestampSerde();
         metadataSymbolMap.forEach((keyMetadata, symbols) -> {
@@ -241,6 +238,7 @@ public class StockController {
                 StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> stateQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                         .withQuery(multiKeyQuery)
                         .withPartitions(partitionSet));
+
                 intermediateResults.addAll(extractStateQueryResults(stateQueryResult));
 
             } else {
@@ -249,11 +247,13 @@ public class StockController {
                 // By convention all gRPC ports are Kafka Streams host port - 2000
                 int port = targetHostInfo.port() - 2000;
                 queryResponse = doRemoteMultiKeyQuery(host, port, keyMetadata.partition(), symbols);
+                hostList.add(queryResponse.getHostType());
                 intermediateResults.addAll(queryResponse.getResult());
             }
         });
-
-        return QueryResponse.withResult(intermediateResults);
+        QueryResponse<List<JsonNode>> finalResult = QueryResponse.withResult(intermediateResults);
+        finalResult.setHostType(hostList.toString());
+        return finalResult;
     }
 
 
@@ -319,7 +319,14 @@ public class StockController {
 
             MultKeyQueryRequestProto multipleRequest = MultKeyQueryRequestProto.newBuilder().addAllSymbols(symbols).setKeyQueryMetadata(keyQueryMetadata).build();
             QueryResponseProto multiKeyResponseProto = blockingStub.getAggregationsForSymbols(multipleRequest);
-            remoteResponse = (QueryResponse<V>) QueryResponse.withResult(multiKeyResponseProto.getJsonResultsList());
+            List<JsonNode> jsonNodeList = multiKeyResponseProto.getJsonResultsList().stream().map(jsonString -> {
+                try {
+                    return objectMapper.readTree(jsonString);
+                } catch (JsonProcessingException e) {
+                    throw new RuntimeException(e);
+                }
+            }).toList();
+            remoteResponse = (QueryResponse<V>) QueryResponse.withResult(jsonNodeList);
             remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
         } catch (StatusRuntimeException exception) {
             remoteResponse = QueryResponse.withError(exception.getMessage());

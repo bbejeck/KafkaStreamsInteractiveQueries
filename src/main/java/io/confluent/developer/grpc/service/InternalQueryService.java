@@ -110,7 +110,9 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
 
     @Override
     public void getAggregationsForSymbols(MultKeyQueryRequestProto request, StreamObserver<QueryResponseProto> responseObserver) {
-        final MultiKeyQuery<String, ValueAndTimestamp<JsonNode>> multiKeyQuery = MultiKeyQuery.withKeys(new HashSet<>(request.getSymbolsList()));
+        final MultiKeyQuery<String, ValueAndTimestamp<JsonNode>> multiKeyQuery = MultiKeyQuery.<String, ValueAndTimestamp<JsonNode>>withKeys(new HashSet<>(request.getSymbolsList()))
+                .keySerde(Serdes.String())
+                .valueSerde(SerdeUtil.valueAndTimestampSerde());
         final KeyQueryMetadataProto keyMetadata = request.getKeyQueryMetadata();
         final Set<Integer> partitionSet = Collections.singleton(keyMetadata.getPartition());
         final StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
