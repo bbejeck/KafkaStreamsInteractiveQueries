@@ -59,16 +59,18 @@ public class CustomInMemoryStore extends InMemoryKeyValueStore {
         else {
             CustomQuery.Type queryType = ((CustomQuery<?>) query).type();
             return switch (queryType) {
-                case MULTI_KEY -> handleMultiKeyQuery((MultiKeyQuery<String, ValueAndTimestamp<JsonNode>>) query, positionBound, config);
-                case FILTERED_RANGE -> handleFilteredRangeQuery((FilteredRangeQuery<String, ValueAndTimestamp<JsonNode>>) query, positionBound, config);
+                case MULTI_KEY -> handleMultiKeyQuery(query, positionBound, config);
+                case FILTERED_RANGE -> handleFilteredRangeQuery(query, positionBound, config);
                 default -> QueryResult.forUnknownQueryType(query, this);
             };
         }
     }
 
-    private <R> QueryResult<R> handleFilteredRangeQuery(final FilteredRangeQuery<String, ValueAndTimestamp<JsonNode>> filteredRangeQuery,
+    private <R> QueryResult<R> handleFilteredRangeQuery(final Query<R> query,
                                                         final PositionBound positionBound,
                                                         final QueryConfig queryConfig) {
+        FilteredRangeQuery<String, ValueAndTimestamp<JsonNode>> filteredRangeQuery =
+                (FilteredRangeQuery<String,ValueAndTimestamp<JsonNode>>)query;
         Serializer<String> keySerializer = filteredRangeQuery.keySerde().serializer();
         Deserializer<String> keyDeserializer = filteredRangeQuery.keySerde().deserializer();
         Deserializer<ValueAndTimestamp<JsonNode>> valueDeserializer = filteredRangeQuery.valueSerde().deserializer();
@@ -98,9 +100,10 @@ public class CustomInMemoryStore extends InMemoryKeyValueStore {
         }
     }
 
-    private <R> QueryResult<R> handleMultiKeyQuery(final MultiKeyQuery<String, ValueAndTimestamp<JsonNode>> multiKeyQuery,
+    private <R> QueryResult<R> handleMultiKeyQuery(final Query<R> query,
                                                    final PositionBound positionBound,
                                                    final QueryConfig queryConfig) {
+        MultiKeyQuery<String, ValueAndTimestamp<JsonNode>> multiKeyQuery = (MultiKeyQuery<String, ValueAndTimestamp<JsonNode>>)query;
         long start = time.milliseconds();
         Set<String > keys = multiKeyQuery.keys();
         Serializer<String> keySerializer = multiKeyQuery.keySerde().serializer();
