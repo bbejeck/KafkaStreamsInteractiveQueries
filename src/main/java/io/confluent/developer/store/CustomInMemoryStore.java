@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.PropertyAccessor;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jayway.jsonpath.Filter;
 import com.jayway.jsonpath.JsonPath;
 import io.confluent.developer.query.CustomQuery;
 import io.confluent.developer.query.FilteredRangeQuery;
@@ -22,21 +21,17 @@ import org.apache.kafka.streams.query.Query;
 import org.apache.kafka.streams.query.QueryConfig;
 import org.apache.kafka.streams.query.QueryResult;
 import org.apache.kafka.streams.state.KeyValueIterator;
-import org.apache.kafka.streams.state.TimestampedKeyValueStore;
+import org.apache.kafka.streams.state.ValueAndTimestamp;
 import org.apache.kafka.streams.state.internals.InMemoryKeyValueStore;
 
-import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.BiPredicate;
 
-import static java.util.stream.Collectors.toList;
-
-public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
+public class CustomInMemoryStore extends InMemoryKeyValueStore {
     private StateStoreContext context;
 
     private final Time time = Time.SYSTEM;
@@ -64,54 +59,60 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
         else {
             CustomQuery.Type queryType = ((CustomQuery<?>) query).type();
             return switch (queryType) {
-                case MULTI_KEY -> handleMultiKeyQuery((MultiKeyQuery<K, V>) query, positionBound, config);
-                case FILTERED_RANGE -> handleFilteredRangeQuery((FilteredRangeQuery<K, V>) query, positionBound, config);
+                case MULTI_KEY -> handleMultiKeyQuery((MultiKeyQuery<String, ValueAndTimestamp<JsonNode>>) query, positionBound, config);
+                case FILTERED_RANGE -> handleFilteredRangeQuery((FilteredRangeQuery<String, ValueAndTimestamp<JsonNode>>) query, positionBound, config);
                 default -> QueryResult.forUnknownQueryType(query, this);
             };
         }
     }
 
-    private <R> QueryResult<R> handleFilteredRangeQuery(final FilteredRangeQuery<K, V> filteredRangeQuery,
+    private <R> QueryResult<R> handleFilteredRangeQuery(final FilteredRangeQuery<String, ValueAndTimestamp<JsonNode>> filteredRangeQuery,
                                                         final PositionBound positionBound,
                                                         final QueryConfig queryConfig) {
-        Serializer<K> keySerializer = filteredRangeQuery.keySerde().serializer();
-        Deserializer<V> valueDeserializer = filteredRangeQuery.valueSerde().deserializer();
+        Serializer<String> keySerializer = filteredRangeQuery.keySerde().serializer();
+        Deserializer<String> keyDeserializer = filteredRangeQuery.keySerde().deserializer();
+        Deserializer<ValueAndTimestamp<JsonNode>> valueDeserializer = filteredRangeQuery.valueSerde().deserializer();
         String predicate = filteredRangeQuery.predicate();
-        List<V> allValues = new ArrayList<>();
-        List<KeyValue<K, V>> filteredResults;
-        K lowerBound = filteredRangeQuery.lowerBound().orElse(null);
-        K upperBound = filteredRangeQuery.upperBound().orElse(null);
+        Map<String, ValueAndTimestamp<JsonNode>> allResultsMap = new HashMap<>();
+        List<KeyValue<String, ValueAndTimestamp<JsonNode>>> filteredResults;
+        String lowerBound = filteredRangeQuery.lowerBound().orElse(null);
+        String upperBound = filteredRangeQuery.upperBound().orElse(null);
         try (KeyValueIterator<Bytes, byte[]> unfilteredRangeResults = range(Bytes.wrap(keySerializer.serialize(null, lowerBound)),
                 Bytes.wrap(keySerializer.serialize(null, upperBound)))) {
 
             unfilteredRangeResults.forEachRemaining(bytesKeyValue -> {
-                V value = valueDeserializer.deserialize(null, bytesKeyValue.value);
-                    allValues.add(value);
+                String key = keyDeserializer.deserialize(null, bytesKeyValue.key.get());
+                ValueAndTimestamp<JsonNode> value = valueDeserializer.deserialize(null, bytesKeyValue.value);
+                    allResultsMap.put(key, value);
             });
             
-            List<Map<String, Object>> filteredValues = JsonPath.parse(objectMapper.writeValueAsString(allValues)).read("$..value[?(" + predicate + ")]");
-            filteredResults = filteredValues.stream().map(v -> (KeyValue<K, V>) KeyValue.pair(v.get("symbol"), v)).toList();
+            List<String> filteredKeys = JsonPath.parse(objectMapper.writeValueAsString(allResultsMap.values())).read("$..value[?(" + predicate + ")].symbol");
+
+            filteredResults =  allResultsMap.entrySet().stream()
+                    .filter(entry -> filteredKeys.contains(entry.getKey()))
+                    .map(entry -> KeyValue.pair(entry.getKey(), entry.getValue())).toList();
+
             return (QueryResult<R>) QueryResult.forResult(new InMemoryKeyValueIterator(filteredResults.iterator()));
         } catch (JsonProcessingException jpe) {
             throw new RuntimeException(jpe);
         }
     }
 
-    private <R> QueryResult<R> handleMultiKeyQuery(final MultiKeyQuery<K, V> multiKeyQuery,
+    private <R> QueryResult<R> handleMultiKeyQuery(final MultiKeyQuery<String, ValueAndTimestamp<JsonNode>> multiKeyQuery,
                                                    final PositionBound positionBound,
                                                    final QueryConfig queryConfig) {
         long start = time.milliseconds();
-        Set<K> keys = multiKeyQuery.keys();
-        Serializer<K> keySerializer = multiKeyQuery.keySerde().serializer();
-        Deserializer<V> valueDeserializer = multiKeyQuery.valueSerde().deserializer();
-        Set<KeyValue<K, V>> results = new HashSet<>();
+        Set<String > keys = multiKeyQuery.keys();
+        Serializer<String> keySerializer = multiKeyQuery.keySerde().serializer();
+        Deserializer<ValueAndTimestamp<JsonNode>> valueDeserializer = multiKeyQuery.valueSerde().deserializer();
+        Set<KeyValue<String, ValueAndTimestamp<JsonNode>>> results = new HashSet<>();
         keys.forEach(key -> {
             Bytes keyBytes = Bytes.wrap(keySerializer.serialize(null, key));
             byte[] returnedBytes = get(keyBytes);
             results.add(KeyValue.pair(key, valueDeserializer.deserialize(null, returnedBytes)));
         });
         long queryExecutionTime = time.milliseconds() - start;
-        KeyValueIterator<K, V> queryResultIterator = new InMemoryKeyValueIterator(results.iterator());
+        KeyValueIterator<String, ValueAndTimestamp<JsonNode>> queryResultIterator = new InMemoryKeyValueIterator(results.iterator());
         QueryResult<R> queryResult = (QueryResult<R>) QueryResult.forResult(queryResultIterator);
         if (queryConfig.isCollectExecutionInfo()) {
             queryResult.addExecutionInfo(String.format("%s retrieved Total number of results [%d] in [%d] ms", multiKeyQuery.getClass(),results.size(),queryExecutionTime));
@@ -122,11 +123,11 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
     }
 
 
-    private class InMemoryKeyValueIterator implements KeyValueIterator<K, V> {
+    private static class InMemoryKeyValueIterator implements KeyValueIterator<String, ValueAndTimestamp<JsonNode>> {
 
-        Iterator<KeyValue<K, V>> queryResultIterator;
+        Iterator<KeyValue<String, ValueAndTimestamp<JsonNode>>> queryResultIterator;
 
-        public InMemoryKeyValueIterator(Iterator<KeyValue<K, V>> queryResultIterator) {
+        public InMemoryKeyValueIterator(Iterator<KeyValue<String , ValueAndTimestamp<JsonNode>>> queryResultIterator) {
             this.queryResultIterator = queryResultIterator;
         }
 
@@ -136,7 +137,7 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
         }
 
         @Override
-        public K peekNextKey() {
+        public String peekNextKey() {
             throw new UnsupportedOperationException("PeekNextKey not supported by " + CustomInMemoryStore.class);
         }
 
@@ -146,7 +147,7 @@ public class CustomInMemoryStore<K, V> extends InMemoryKeyValueStore {
         }
 
         @Override
-        public KeyValue<K, V> next() {
+        public KeyValue<String, ValueAndTimestamp<JsonNode>> next() {
             return queryResultIterator.next();
         }
     }

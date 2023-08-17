@@ -4,7 +4,6 @@ import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.streams.state.KeyValueIterator;
 
 import java.util.Optional;
-import java.util.function.BiPredicate;
 
 public class FilteredRangeQuery<K, V> implements CustomQuery<KeyValueIterator<K, V>> {
 
