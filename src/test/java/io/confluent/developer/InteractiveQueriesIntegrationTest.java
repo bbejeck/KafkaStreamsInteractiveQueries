@@ -229,15 +229,16 @@ class InteractiveQueriesIntegrationTest {
         try {
 
             QueryResponse<List<StockTransactionAggregation>> rangeResult = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO, null);
-            List<String> expectedSymbols = List.of(SYMBOL_ONE, SYMBOL_TWO, "GOOGL", "SHMDF", "TWTR", "MSFT");
-            assertThat(rangeResult.getResult().stream().map(StockTransactionAggregation::getSymbol).toList(), containsInAnyOrder(expectedSymbols));
+            List<String> actualSymbols = rangeResult.getResult().stream().map(StockTransactionAggregation::getSymbol).toList();
+            assertThat(actualSymbols, containsInAnyOrder(SYMBOL_ONE, SYMBOL_TWO, "GOOGL", "SHMDF", "TWTR", "MSFT"));
 
             contextTwo.close();
             while (contextTwo.isRunning()) {
                 time.sleep(500);
             }
             QueryResponse<List<StockTransactionAggregation>> rangeResultII = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO, null);
-            assertThat(rangeResult.getResult(), containsInAnyOrder(rangeResultII.getResult().toArray()));
+            List<String> actualSymbolsII = rangeResultII.getResult().stream().map(StockTransactionAggregation::getSymbol).toList();
+            assertThat(actualSymbolsII, containsInAnyOrder(SYMBOL_ONE, SYMBOL_TWO, "GOOGL", "SHMDF", "TWTR", "MSFT"));
 
         } finally {
             contextOne.close();

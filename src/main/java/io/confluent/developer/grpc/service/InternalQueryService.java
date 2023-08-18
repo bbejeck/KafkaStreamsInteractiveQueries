@@ -87,7 +87,8 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
                 QueryUtils.createRangeQuery(request.getLower(),request.getUpper(), request.getPredicate());
 
         final StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
-                .withQuery(rangeQuery));
+                .withQuery(rangeQuery)
+                .withPartitions(new HashSet<>(request.getPartitionsList())));
         final Map<Integer,QueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>>> allPartitionResults = keyQueryResult.getPartitionResults();
 
         final QueryResponseProto.Builder repsonseBuilder = QueryResponseProto.newBuilder();
