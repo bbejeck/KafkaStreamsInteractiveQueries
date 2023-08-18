@@ -10,12 +10,14 @@ import io.confluent.developer.proto.QueryResponseProto;
 import io.confluent.developer.proto.RangeQueryRequestProto;
 import io.confluent.developer.query.FilteredRangeQuery;
 import io.confluent.developer.query.MultiKeyQuery;
+import io.confluent.developer.query.QueryUtils;
 import io.confluent.developer.streams.SerdeUtil;
 import io.grpc.stub.StreamObserver;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.query.KeyQuery;
+import org.apache.kafka.streams.query.Query;
 import org.apache.kafka.streams.query.QueryResult;
 import org.apache.kafka.streams.query.StateQueryRequest;
 import org.apache.kafka.streams.query.StateQueryResult;
@@ -59,7 +61,7 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
 
 
     @Override
-    public void getAggregationForSymbol(final KeyQueryRequestProto request,
+    public void keyQueryService(final KeyQueryRequestProto request,
                                         final StreamObserver<QueryResponseProto> responseObserver) {
 
         final KeyQuery<String, ValueAndTimestamp<JsonNode>> keyQuery = KeyQuery.withKey(request.getSymbol());
@@ -80,15 +82,12 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
    }
 
     @Override
-    public void rangeQueryForSymbols(RangeQueryRequestProto request, StreamObserver<QueryResponseProto> responseObserver) {
-        final FilteredRangeQuery<String, ValueAndTimestamp<JsonNode>> filteredRangeQuery = FilteredRangeQuery
-                .<String, ValueAndTimestamp<JsonNode>>withBounds(request.getLower(), request.getUpper())
-                .predicate(request.getJsonPredicate())
-                .serdes(stringSerde, valueAndTimestampSerde);
-
+    public void rangeQueryService(RangeQueryRequestProto request, StreamObserver<QueryResponseProto> responseObserver) {
+        final Query<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> rangeQuery =
+                QueryUtils.createRangeQuery(request.getLower(),request.getUpper(), request.getPredicate());
 
         final StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
-                .withQuery(filteredRangeQuery));
+                .withQuery(rangeQuery));
         final Map<Integer,QueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>>> allPartitionResults = keyQueryResult.getPartitionResults();
 
         final QueryResponseProto.Builder repsonseBuilder = QueryResponseProto.newBuilder();
@@ -109,7 +108,7 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
     }
 
     @Override
-    public void getAggregationsForSymbols(MultKeyQueryRequestProto request, StreamObserver<QueryResponseProto> responseObserver) {
+    public void multiKeyQueryService(MultKeyQueryRequestProto request, StreamObserver<QueryResponseProto> responseObserver) {
         final MultiKeyQuery<String, ValueAndTimestamp<JsonNode>> multiKeyQuery = MultiKeyQuery.<String, ValueAndTimestamp<JsonNode>>withKeys(new HashSet<>(request.getSymbolsList()))
                 .keySerde(Serdes.String())
                 .valueSerde(SerdeUtil.valueAndTimestampSerde());

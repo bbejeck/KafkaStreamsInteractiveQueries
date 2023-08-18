@@ -13,7 +13,6 @@ import io.confluent.developer.streams.SerdeUtil;
 import io.grpc.internal.testing.StreamRecorder;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
-import org.apache.kafka.streams.query.KeyQuery;
 import org.apache.kafka.streams.query.QueryResult;
 import org.apache.kafka.streams.query.StateQueryRequest;
 import org.apache.kafka.streams.query.StateQueryResult;
@@ -21,12 +20,9 @@ import org.apache.kafka.streams.state.ValueAndTimestamp;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mock;
 import org.mockito.Mockito;
 
 import java.time.Instant;
-import java.util.Collections;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 import static org.hamcrest.MatcherAssert.assertThat;
@@ -50,7 +46,7 @@ class InternalQueryServiceTest {
 
     @Test()
     @DisplayName("Testing for single key query")
-    void getAggregationForSymbol() throws Exception {
+    void keyQueryServiceTest() throws Exception {
         HostInfoProto hostInfoProto = HostInfoProto.newBuilder()
                 .setHost("localhost")
                 .setPort(5059)
@@ -83,7 +79,7 @@ class InternalQueryServiceTest {
 
 
         StreamRecorder<QueryResponseProto> responseObserver = StreamRecorder.create();
-        internalQueryService.getAggregationForSymbol(queryRequestProto, responseObserver);
+        internalQueryService.keyQueryService(queryRequestProto, responseObserver);
         if (!responseObserver.awaitCompletion(5, TimeUnit.SECONDS)) {
             fail("The call did not terminate in time");
         }
@@ -95,10 +91,10 @@ class InternalQueryServiceTest {
     }
 
     @Test
-    void rangeQueryForSymbols() {
+    void rangeQueryServiceTest() {
     }
 
     @Test
-    void getAggregationsForSymbols() {
+    void mulitKeyQueryServiceTest() {
     }
 }

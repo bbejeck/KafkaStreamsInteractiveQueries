@@ -9,9 +9,10 @@ import io.confluent.developer.proto.KeyQueryMetadataProto;
 import io.confluent.developer.proto.KeyQueryRequestProto;
 import io.confluent.developer.proto.MultKeyQueryRequestProto;
 import io.confluent.developer.proto.QueryResponseProto;
-import io.confluent.developer.query.FilteredRangeQuery;
+import io.confluent.developer.proto.RangeQueryRequestProto;
 import io.confluent.developer.query.MultiKeyQuery;
 import io.confluent.developer.query.QueryResponse;
+import io.confluent.developer.query.QueryUtils;
 import io.confluent.developer.streams.SerdeUtil;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -28,7 +29,6 @@ import org.apache.kafka.streams.query.KeyQuery;
 import org.apache.kafka.streams.query.PositionBound;
 import org.apache.kafka.streams.query.Query;
 import org.apache.kafka.streams.query.QueryResult;
-import org.apache.kafka.streams.query.RangeQuery;
 import org.apache.kafka.streams.query.StateQueryRequest;
 import org.apache.kafka.streams.query.StateQueryResult;
 import org.apache.kafka.streams.state.HostInfo;
@@ -42,9 +42,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
 
 import javax.annotation.PostConstruct;
 import java.util.ArrayList;
@@ -78,8 +76,6 @@ public class StockController {
 
     private static final int MAX_RETRIES = 3;
     private static final Time time = Time.SYSTEM;
-
-    private static final String BASE_IQ_URL = "http://{host}:{port}/streams-iq";
 
     private enum HostStatus {
         ACTIVE,
@@ -134,31 +130,14 @@ public class StockController {
         return QueryResponse.withResult(aggregations);
     }
 
-
-    @GetMapping(value = "/internal/range")
-    public QueryResponse<List<JsonNode>> getAggregationRangeInternal(@RequestParam(required = false) String lower,
-                                                                     @RequestParam(required = false) String upper,
-                                                                     @RequestParam(required = false) List<Integer> partitions,
-                                                                     @RequestParam(required = false) String filterJson) {
-        Optional<Set<Integer>> optionalPartitions;
-        if (partitions != null && !partitions.isEmpty()) {
-            optionalPartitions = Optional.of(new HashSet<>(partitions));
-        } else {
-            optionalPartitions = Optional.empty();
-        }
-
-        return doRangeQuery(thisHostInfo, optionalPartitions, Optional.empty(), lower, upper, filterJson);
-
-    }
-
     private QueryResponse<List<JsonNode>> doRangeQuery(final HostInfo targetHostInfo,
                                                        final Optional<Set<Integer>> partitions,
                                                        final Optional<PositionBound> positionBound,
                                                        final String lower,
                                                        final String upper,
-                                                       final String filterJson) {
+                                                       final String predicate) {
 
-        Query<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> rangeQuery = createRangeQuery(lower, upper, filterJson);
+        Query<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> rangeQuery = QueryUtils.createRangeQuery(lower, upper, predicate);
 
         StateQueryRequest<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> queryRequest = StateQueryRequest.inStore(storeName).withQuery(rangeQuery);
         if (partitions.isPresent() && !partitions.get().isEmpty()) {
@@ -175,10 +154,10 @@ public class StockController {
             aggregations.addAll(extractStateQueryResults(result));
             queryResponse = QueryResponse.withResult(aggregations);
         } else {
-            String path = createRangeRequestPath(lower, upper, filterJson, partitions);
             String host = targetHostInfo.host();
-            int port = targetHostInfo.port();
-            queryResponse = doRemoteRequest(host, port, path);
+            // By convention all gRPC ports are Kafka Streams host port - 2000
+            int port = targetHostInfo.port() - 2000;
+            queryResponse = doRemoteRangeQuery(host, port, partitions, Optional.empty(),lower, upper, predicate);
         }
         return queryResponse;
     }
@@ -282,6 +261,52 @@ public class StockController {
         return queryResponse;
     }
 
+    private <V> QueryResponse<V> doRemoteRangeQuery(final String host,
+                                                    final int port,
+                                                    final Optional<Set<Integer>> partitions,
+                                                    final Optional<PositionBound> positionBound,
+                                                    final String lowerBound,
+                                                    final String upperBound,
+                                                    final String predicate) {
+        QueryResponse<V> remoteResponse;
+        ManagedChannel channel = null;
+        try {
+            channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
+            InternalQueryGrpc.InternalQueryBlockingStub blockingStub = InternalQueryGrpc.newBlockingStub(channel);
+            RangeQueryRequestProto.Builder rangeRequestBuilder = RangeQueryRequestProto.newBuilder()
+                    .setUpper(upperBound)
+                    .setLower(lowerBound)
+                    .addAllPartitions(partitions.orElseGet(Collections::emptySet));
+            if(QueryUtils.isNotBlank(predicate)){
+                rangeRequestBuilder.setPredicate(predicate);
+            }
+
+            QueryResponseProto rangeQueryResponse = blockingStub.rangeQueryService(rangeRequestBuilder.build());
+            remoteResponse = extractAndConvertRemoteResultList(rangeQueryResponse);
+            remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
+        } catch (StatusRuntimeException exception) {
+            remoteResponse = QueryResponse.withError(exception.getMessage());
+        } finally {
+            if (channel != null) {
+                channel.shutdown();
+            }
+
+        }
+        return remoteResponse;
+    }
+
+    private <V> QueryResponse<V> extractAndConvertRemoteResultList(QueryResponseProto remoteResponseProto) {
+        QueryResponse<V> remoteResponse;
+        List<JsonNode> jsonNodeList = remoteResponseProto.getJsonResultsList().stream().map(jsonString -> {
+            try {
+                return objectMapper.readTree(jsonString);
+            } catch (JsonProcessingException e) {
+                throw new RuntimeException(e);
+            }
+        }).toList();
+        remoteResponse = (QueryResponse<V>) QueryResponse.withResult(jsonNodeList);
+        return remoteResponse;
+    }
 
     private <V> QueryResponse<V> doRemoteKeyQuery(final String host,
                                                   final int port,
@@ -295,7 +320,7 @@ public class StockController {
             KeyQueryMetadataProto keyQueryMetadata = KeyQueryMetadataProto.newBuilder().setPartition(partition).build();
 
             KeyQueryRequestProto keyQueryRequest = KeyQueryRequestProto.newBuilder().setSymbol(symbol).setKeyQueryMetadata(keyQueryMetadata).build();
-            QueryResponseProto queryResponseProto = blockingStub.getAggregationForSymbol(keyQueryRequest);
+            QueryResponseProto queryResponseProto = blockingStub.keyQueryService(keyQueryRequest);
             JsonNode node = objectMapper.readTree(queryResponseProto.getJsonResultsList().get(0));
             remoteResponse = (QueryResponse<V>) QueryResponse.withResult(node);
             remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
@@ -309,7 +334,10 @@ public class StockController {
         return remoteResponse;
     }
 
-    private <V> QueryResponse<V> doRemoteMultiKeyQuery(String host, int port, int partition, Set<String> symbols) {
+    private <V> QueryResponse<V> doRemoteMultiKeyQuery(final String host,
+                                                       final int port,
+                                                       final int partition,
+                                                       final Set<String> symbols) {
         QueryResponse<V> remoteResponse;
         ManagedChannel channel = null;
         try {
@@ -318,15 +346,8 @@ public class StockController {
             KeyQueryMetadataProto keyQueryMetadata = KeyQueryMetadataProto.newBuilder().setPartition(partition).build();
 
             MultKeyQueryRequestProto multipleRequest = MultKeyQueryRequestProto.newBuilder().addAllSymbols(symbols).setKeyQueryMetadata(keyQueryMetadata).build();
-            QueryResponseProto multiKeyResponseProto = blockingStub.getAggregationsForSymbols(multipleRequest);
-            List<JsonNode> jsonNodeList = multiKeyResponseProto.getJsonResultsList().stream().map(jsonString -> {
-                try {
-                    return objectMapper.readTree(jsonString);
-                } catch (JsonProcessingException e) {
-                    throw new RuntimeException(e);
-                }
-            }).toList();
-            remoteResponse = (QueryResponse<V>) QueryResponse.withResult(jsonNodeList);
+            QueryResponseProto multiKeyResponseProto = blockingStub.multiKeyQueryService(multipleRequest);
+            remoteResponse = extractAndConvertRemoteResultList(multiKeyResponseProto);
             remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
         } catch (StatusRuntimeException exception) {
             remoteResponse = QueryResponse.withError(exception.getMessage());
@@ -334,20 +355,6 @@ public class StockController {
             if (channel != null) {
                 channel.shutdown();
             }
-        }
-        return remoteResponse;
-    }
-
-    private <V> QueryResponse<V> doRemoteRequest(String host, int port, String path) {
-        QueryResponse<V> remoteResponse;
-        ManagedChannel channel = null;
-        try {
-            remoteResponse = restTemplate.getForObject(BASE_IQ_URL + path, QueryResponse.class, host, port);
-            if (remoteResponse == null) {
-                remoteResponse = QueryResponse.withError("Remote call returned null response");
-            }
-        } catch (RestClientException exception) {
-            remoteResponse = QueryResponse.withError(exception.getMessage());
         }
         return remoteResponse;
     }
@@ -381,44 +388,6 @@ public class StockController {
         temp.retainAll(standbyCandidate.standbyTopicPartitions());
         return temp;
     }
-
-    private Query<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> createRangeQuery(String lower, String upper, String jsonPredicate) {
-        if (isNotBlank(jsonPredicate)) {
-            return createFilteredRangeQuery(lower, upper, jsonPredicate);
-        } else {
-            if (isBlank(lower) && isBlank(upper)) {
-                return RangeQuery.withNoBounds();
-            } else if (!isBlank(lower) && isBlank(upper)) {
-                return RangeQuery.withLowerBound(lower);
-            } else if (isBlank(lower) && !isBlank(upper)) {
-                return RangeQuery.withUpperBound(upper);
-            } else {
-                return RangeQuery.withRange(lower, upper);
-            }
-        }
-    }
-
-    private FilteredRangeQuery<String, ValueAndTimestamp<JsonNode>> createFilteredRangeQuery(String lower, String upper, String jsonPredicate) {
-        return FilteredRangeQuery.<String, ValueAndTimestamp<JsonNode>>withPredicate(jsonPredicate).serdes(Serdes.String(), SerdeUtil.valueAndTimestampSerde());
-    }
-
-    private String createRangeRequestPath(String lower, String upper, String filter, Optional<Set<Integer>> optionalPartitions) {
-        UriComponentsBuilder uriBuilder = UriComponentsBuilder.fromUriString("/internal")
-                .queryParam("lower", lower)
-                .queryParam("upper", upper)
-                .queryParam("filter", filter)
-                .queryParam("partitions", optionalPartitions.orElse(new HashSet<>()));
-        return uriBuilder.build().getPath();
-    }
-
-    private boolean isBlank(String str) {
-        return str == null || str.isBlank();
-    }
-
-    private boolean isNotBlank(String str) {
-        return !isBlank(str);
-    }
-
     private List<JsonNode> extractStateQueryResults(StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> result) {
         Map<Integer, QueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>>> allPartitionsResult = result.getPartitionResults();
         List<JsonNode> aggregationResult = new ArrayList<>();

@@ -32,7 +32,8 @@ message MultKeyQueryRequestProto {
 message RangeQueryRequestProto {
   string lower = 1;
   string upper = 2;
-  string jsonPredicate = 3;
+  string predicate = 3;
+  repeated int32 partitions = 4;
 }
 
 message QueryResponseProto {
@@ -44,9 +45,9 @@ message QueryResponseProto {
 message Empty {}
 
 service InternalQuery {
-  rpc GetAggregationForSymbol (KeyQueryRequestProto) returns (QueryResponseProto);
+  rpc KeyQueryService (KeyQueryRequestProto) returns (QueryResponseProto);
 
-  rpc GetAggregationsForSymbols (MultKeyQueryRequestProto) returns (QueryResponseProto);
+  rpc MultiKeyQueryService (MultKeyQueryRequestProto) returns (QueryResponseProto);
 
-  rpc RangeQueryForSymbols (RangeQueryRequestProto) returns (QueryResponseProto);
+  rpc RangeQueryService (RangeQueryRequestProto) returns (QueryResponseProto);
 }

@@ -65,6 +65,9 @@ class InteractiveQueriesIntegrationTest {
 
     private static final int APP_ONE_PORT = 7084;
     private static final int APP_TWO_PORT = 7089;
+    private static final int APP_ONE_GRPC_PORT = 5084;
+
+    private static final int APP_TWO_GRPC_PORT = 5089;
 
     private static final String SYMBOL_ONE = "CFLT";
     private static final String SYMBOL_TWO = "ZELK";
@@ -98,13 +101,13 @@ class InteractiveQueriesIntegrationTest {
     @DisplayName("Key Query and failover with Standby Tasks")
     void testStandbyKeyQueryIQ() {
 
-        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT, kafka.getBootstrapServers());
+        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT,APP_ONE_GRPC_PORT,"App 1 profile", kafka.getBootstrapServers());
         while (!contextOne.isRunning()) {
             time.sleep(500);
         }
 
         time.sleep(5000);
-        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT, kafka.getBootstrapServers());
+        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT, APP_TWO_GRPC_PORT, "App 2 profile", kafka.getBootstrapServers());
         while ((!contextTwo.isRunning())) {
             time.sleep(500);
         }
@@ -158,13 +161,13 @@ class InteractiveQueriesIntegrationTest {
     @DisplayName("Key Query using gRPC for remote call")
     void testKeyQueryIQgRpc() {
 
-        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT, kafka.getBootstrapServers());
+        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT, APP_ONE_GRPC_PORT, "App 1 profile", kafka.getBootstrapServers());
         while (!contextOne.isRunning()) {
             time.sleep(500);
         }
 
         time.sleep(5000);
-        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT, kafka.getBootstrapServers());
+        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT,APP_TWO_GRPC_PORT, "App 2 profile", kafka.getBootstrapServers());
         while ((!contextTwo.isRunning())) {
             time.sleep(500);
         }
@@ -207,13 +210,13 @@ class InteractiveQueriesIntegrationTest {
     @DisplayName("Range Query and failover with Standby Tasks")
     void testStandbyRangeQueryIQ() {
 
-        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT, kafka.getBootstrapServers());
+        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT, APP_ONE_GRPC_PORT, "App 1 profile", kafka.getBootstrapServers());
         while (!contextOne.isRunning()) {
             time.sleep(500);
         }
 
         time.sleep(5000);
-        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT, kafka.getBootstrapServers());
+        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT, APP_TWO_GRPC_PORT, "App 2 profile", kafka.getBootstrapServers());
         while ((!contextTwo.isRunning())) {
             time.sleep(500);
         }
@@ -227,7 +230,7 @@ class InteractiveQueriesIntegrationTest {
 
             QueryResponse<List<StockTransactionAggregation>> rangeResult = queryForRangeResult(APP_ONE_PORT, SYMBOL_ONE, SYMBOL_TWO, null);
             List<String> expectedSymbols = List.of(SYMBOL_ONE, SYMBOL_TWO, "GOOGL", "SHMDF", "TWTR", "MSFT");
-            assertThat(expectedSymbols, containsInAnyOrder(rangeResult.getResult().stream().map(StockTransactionAggregation::getSymbol).toArray()));
+            assertThat(rangeResult.getResult().stream().map(StockTransactionAggregation::getSymbol).toList(), containsInAnyOrder(expectedSymbols));
 
             contextTwo.close();
             while (contextTwo.isRunning()) {
@@ -249,13 +252,13 @@ class InteractiveQueriesIntegrationTest {
     @DisplayName("Custom Range Query with filtering")
     void testFilteredRangeQueryIQ() {
 
-        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT, kafka.getBootstrapServers());
+        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT, APP_ONE_GRPC_PORT, "App 1 profile", kafka.getBootstrapServers());
         while (!contextOne.isRunning()) {
             time.sleep(500);
         }
 
         time.sleep(5000);
-        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT, kafka.getBootstrapServers());
+        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT, APP_TWO_GRPC_PORT, "App 2 profile", kafka.getBootstrapServers());
         while ((!contextTwo.isRunning())) {
             time.sleep(500);
         }
@@ -283,13 +286,13 @@ class InteractiveQueriesIntegrationTest {
     @DisplayName("MultiKey Query tests")
     void testMultiKeyQuery() {
 
-        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT, kafka.getBootstrapServers());
+        ConfigurableApplicationContext contextOne = createAndStartApplication(APP_ONE_PORT, APP_ONE_GRPC_PORT, "App 1 properties", kafka.getBootstrapServers());
         while (!contextOne.isRunning()) {
             time.sleep(500);
         }
 
         time.sleep(5000);
-        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT, kafka.getBootstrapServers());
+        ConfigurableApplicationContext contextTwo = createAndStartApplication(APP_TWO_PORT, APP_TWO_GRPC_PORT, "App 2 properties", kafka.getBootstrapServers());
         while ((!contextTwo.isRunning())) {
             time.sleep(500);
         }
@@ -343,6 +346,8 @@ class InteractiveQueriesIntegrationTest {
     }
 
     private ConfigurableApplicationContext createAndStartApplication(int serverPort,
+                                                                     int grpcPort,
+                                                                     String profile,
                                                                      String bootstrapServers) {
         SpringApplicationBuilder applicationBuilder =
                 new SpringApplicationBuilder(KafkaStreamsInteractiveQueriesApp.class);
@@ -350,11 +355,11 @@ class InteractiveQueriesIntegrationTest {
         Properties properties = new Properties();
         properties.put("bootstrap.servers", bootstrapServers);
         properties.put("server.port", serverPort);
-        properties.put("grpc.port", serverPort - 2000);
+        properties.put("grpc.port", grpcPort);
         properties.put("secure.configs", "false");
         properties.put(StreamsConfig.consumerPrefix(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG), 60 * 1000);
         ConfigurableEnvironment env = new StandardEnvironment();
-        env.setActiveProfiles("app-one-test-profile");
+        env.setActiveProfiles(profile);
 
         env.getPropertySources()
                 .addFirst(new PropertiesPropertySource("initProps", properties));
