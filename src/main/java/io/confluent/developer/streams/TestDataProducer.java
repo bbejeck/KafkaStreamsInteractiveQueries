@@ -35,7 +35,7 @@ public class TestDataProducer {
                     List<StockTransaction> stockTransactionList = keys.stream().map(key -> builder.withSymbol(key)
                             .withAmount(random.nextDouble() * random.nextInt(500) * (random .nextBoolean() ? -1 : 1))
                             .withBuy(random.nextBoolean())
-                            .build()).collect(Collectors.toList());
+                            .build()).toList();
                     stockTransactionList.forEach(transaction -> producer.send(new ProducerRecord<>("input", transaction.getSymbol(), transaction), (meta, e) -> {
                         if (e != null) {
                             System.out.printf("Error producing %s %n", e);
@@ -43,7 +43,7 @@ public class TestDataProducer {
                             System.out.printf("Produced record offset=%d, partition=%d, ts=%d %n", meta.offset(), meta.partition(), meta.timestamp());
                         }
                     }));
-                    time.sleep(5000);
+                    time.sleep(1000);
                 }
             }
     }

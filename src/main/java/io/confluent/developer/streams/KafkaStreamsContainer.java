@@ -34,6 +34,7 @@ public class KafkaStreamsContainer {
     public void init() {
         Properties properties = appConfiguration.streamsConfigs();
         properties.put(StreamsConfig.consumerPrefix("session.timeout.ms"),300_000);
+        properties.put(StreamsConfig.METRICS_RECORDING_LEVEL_CONFIG, "TRACE");
         Topology topology = aggregationStream.topology();
         kafkaStreams = new KafkaStreams(topology, properties);
         kafkaStreams.cleanUp();
