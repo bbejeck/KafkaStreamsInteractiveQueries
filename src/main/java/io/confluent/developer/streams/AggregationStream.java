@@ -5,8 +5,7 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.confluent.developer.config.KafkaStreamsAppConfiguration;
 import io.confluent.developer.model.StockTransaction;
-import io.confluent.developer.model.StockTransactionAggregation;
-import io.confluent.developer.store.CustomStores;
+import io.confluent.developer.store.CustomQueryStores;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.utils.Bytes;
@@ -52,7 +51,10 @@ public class AggregationStream {
                 .peek((k, v) -> System.out.println("incoming" +
                         " key " + k + " value " + v));
 
-        KeyValueBytesStoreSupplier supplier = CustomStores.customInMemoryBytesStoreSupplier(streamsConfiguration.storeName());
+        KeyValueBytesStoreSupplier supplier = 
+                CustomQueryStores.customInMemoryBytesStoreSupplier(streamsConfiguration.storeName());
+        KeyValueBytesStoreSupplier persistentSupplier =
+                CustomQueryStores.customTimestampedPersistentStoreSupplier(streamsConfiguration.storeName());
         Materialized<String, JsonNode, KeyValueStore<Bytes, byte[]>> materialized = Materialized.as(supplier);
         materialized.withKeySerde(stringSerde).withValueSerde(jsonNodeSerde);
 

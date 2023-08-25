@@ -36,7 +36,7 @@ public class TestDataProducer {
         Stock stockFaker = faker.stock();
         Number numberFaker = faker.number();
         Bool booleanFaker = faker.bool();
-        List<String> keys = List.of("CFLT", "MSFT", "GOOG", "AACO", "AAPL", "ZELK");
+        List<String> keys = List.of("CFLT", "ZELK");
 
         List<String> baseSymbols = Stream.generate(stockFaker::nsdqSymbol).limit(200).toList();
         List<String> tickerSymbols = new ArrayList<>(baseSymbols);
@@ -56,7 +56,7 @@ public class TestDataProducer {
                             System.out.printf("Produced record offset=%d, partition=%d, ts=%d %n", meta.offset(), meta.partition(), meta.timestamp());
                         }
                         }));
-                    time.sleep(50);
+                    time.sleep(25);
                 }
             }
     }

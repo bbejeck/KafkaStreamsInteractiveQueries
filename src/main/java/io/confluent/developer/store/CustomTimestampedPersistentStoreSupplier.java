@@ -5,12 +5,11 @@ import org.apache.kafka.streams.state.KeyValueBytesStoreSupplier;
 import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.StoreSupplier;
 
-public class CustomInMemoryBytesStoreSupplier implements KeyValueBytesStoreSupplier {
-
+public class CustomTimestampedPersistentStoreSupplier implements KeyValueBytesStoreSupplier {
 
     private final StoreSupplier<KeyValueStore<Bytes, byte[]>> innerSupplier;
 
-    public CustomInMemoryBytesStoreSupplier(final StoreSupplier<KeyValueStore<Bytes, byte[]>> innerSupplier) {
+    public CustomTimestampedPersistentStoreSupplier(StoreSupplier<KeyValueStore<Bytes, byte[]>> innerSupplier) {
         this.innerSupplier = innerSupplier;
     }
 
@@ -26,6 +25,7 @@ public class CustomInMemoryBytesStoreSupplier implements KeyValueBytesStoreSuppl
 
     @Override
     public String metricsScope() {
-        return innerSupplier.metricsScope();
+        return "custom-query-" + innerSupplier.metricsScope();
     }
+
 }

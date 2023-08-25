@@ -37,14 +37,20 @@ public class KafkaStreamsAppConfiguration {
     @Value("${output.topic.name}")
     private String outputTopic;
 
-    @Value("    ${bootstrap.servers}")
+    @Value("${bootstrap.servers}")
     private List<String> bootstrapServers;
 
     @Value("${server.port}")
     private int serverPort;
 
+    @Value("${grpc.port}")
+    private int grpcPort;
+
     @Value("${secure.configs}")
     private String secureConfigs;
+
+    @Value("${persistent.metrics.scope")
+    private String persistentMetricsScope;
 
 
 
@@ -91,5 +97,9 @@ public class KafkaStreamsAppConfiguration {
 
     public String outputTopic() {
         return outputTopic;
+    }
+
+    public String persistentMetricsScope() {
+        return persistentMetricsScope;
     }
 }
