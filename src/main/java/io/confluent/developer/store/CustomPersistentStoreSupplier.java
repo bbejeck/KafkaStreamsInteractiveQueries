@@ -5,11 +5,11 @@ import org.apache.kafka.streams.state.KeyValueBytesStoreSupplier;
 import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.StoreSupplier;
 
-public class CustomTimestampedPersistentStoreSupplier implements KeyValueBytesStoreSupplier {
+public class CustomPersistentStoreSupplier implements KeyValueBytesStoreSupplier {
 
     private final StoreSupplier<KeyValueStore<Bytes, byte[]>> innerSupplier;
 
-    public CustomTimestampedPersistentStoreSupplier(StoreSupplier<KeyValueStore<Bytes, byte[]>> innerSupplier) {
+    public CustomPersistentStoreSupplier(StoreSupplier<KeyValueStore<Bytes, byte[]>> innerSupplier) {
         this.innerSupplier = innerSupplier;
     }
 

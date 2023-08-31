@@ -11,7 +11,7 @@ public class CustomQueryStores {
         return new CustomInMemoryBytesStoreSupplier(Stores.inMemoryKeyValueStore(name));
     }
 
-    public static CustomTimestampedPersistentStoreSupplier customTimestampedPersistentStoreSupplier(final String name) {
-        return new CustomTimestampedPersistentStoreSupplier(Stores.persistentTimestampedKeyValueStore(name));
+    public static CustomPersistentStoreSupplier customPersistentStoreSupplier(final String name) {
+        return new CustomPersistentStoreSupplier(Stores.persistentKeyValueStore(name));
     }
 }

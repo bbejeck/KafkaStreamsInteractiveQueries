@@ -51,11 +51,10 @@ public class AggregationStream {
                 .peek((k, v) -> System.out.println("incoming" +
                         " key " + k + " value " + v));
 
-        KeyValueBytesStoreSupplier supplier = 
-                CustomQueryStores.customInMemoryBytesStoreSupplier(streamsConfiguration.storeName());
+
         KeyValueBytesStoreSupplier persistentSupplier =
-                CustomQueryStores.customTimestampedPersistentStoreSupplier(streamsConfiguration.storeName());
-        Materialized<String, JsonNode, KeyValueStore<Bytes, byte[]>> materialized = Materialized.as(supplier);
+                CustomQueryStores.customPersistentStoreSupplier(streamsConfiguration.storeName());
+        Materialized<String, JsonNode, KeyValueStore<Bytes, byte[]>> materialized = Materialized.as(persistentSupplier);
         materialized.withKeySerde(stringSerde).withValueSerde(jsonNodeSerde);
 
         input.groupByKey()

@@ -62,44 +62,41 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
 
     @Override
     public void keyQueryService(final KeyQueryRequestProto request,
-                                        final StreamObserver<QueryResponseProto> responseObserver) {
+                                final StreamObserver<QueryResponseProto> responseObserver) {
 
-        final KeyQuery<String, ValueAndTimestamp<JsonNode>> keyQuery = KeyQuery.withKey(request.getSymbol());
+        final KeyQuery<String, JsonNode> keyQuery = KeyQuery.withKey(request.getSymbol());
         final KeyQueryMetadataProto keyMetadata = request.getKeyQueryMetadata();
         final Set<Integer> partitionSet = Collections.singleton(keyMetadata.getPartition());
-        final StateQueryResult<ValueAndTimestamp<JsonNode>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+        final StateQueryResult<JsonNode> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                 .withQuery(keyQuery)
                 .withPartitions(partitionSet));
-        final QueryResult<ValueAndTimestamp<JsonNode>> queryResult = keyQueryResult.getOnlyPartitionResult();
+        final QueryResult<JsonNode> queryResult = keyQueryResult.getOnlyPartitionResult();
 
         final QueryResponseProto.Builder repsonseBuilder = QueryResponseProto.newBuilder();
-        JsonNode aggregation = queryResult.getResult().value();
+        JsonNode aggregation = queryResult.getResult();
         repsonseBuilder.addAllExecutionInfo(queryResult.getExecutionInfo());
-        ((ObjectNode)aggregation).put("timestamp", queryResult.getResult().timestamp());
         repsonseBuilder.addJsonResults(aggregation.toString());
         responseObserver.onNext(repsonseBuilder.build());
         responseObserver.onCompleted();
-   }
+    }
 
     @Override
     public void rangeQueryService(RangeQueryRequestProto request, StreamObserver<QueryResponseProto> responseObserver) {
-        final Query<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> rangeQuery =
-                QueryUtils.createRangeQuery(request.getLower(),request.getUpper(), request.getPredicate());
+        final Query<KeyValueIterator<String, JsonNode>> rangeQuery =
+                QueryUtils.createRangeQuery(request.getLower(), request.getUpper(), request.getPredicate());
 
-        final StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+        final StateQueryResult<KeyValueIterator<String, JsonNode>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                 .withQuery(rangeQuery)
                 .withPartitions(new HashSet<>(request.getPartitionsList())));
-        final Map<Integer,QueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>>> allPartitionResults = keyQueryResult.getPartitionResults();
+        final Map<Integer, QueryResult<KeyValueIterator<String, JsonNode>>> allPartitionResults = keyQueryResult.getPartitionResults();
 
         final QueryResponseProto.Builder repsonseBuilder = QueryResponseProto.newBuilder();
 
         List<String> jsonResults = new ArrayList<>();
-        allPartitionResults.forEach((k,v) -> {
+        allPartitionResults.forEach((k, v) -> {
             var keyValues = v.getResult();
             keyValues.forEachRemaining(kv -> {
-                long timestamp = kv.value.timestamp();
-                JsonNode node = kv.value.value();
-                ((ObjectNode) node).put("timestamp", timestamp);
+                JsonNode node = kv.value;
                 jsonResults.add(node.toString());
             });
         });
@@ -110,22 +107,20 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
 
     @Override
     public void multiKeyQueryService(MultKeyQueryRequestProto request, StreamObserver<QueryResponseProto> responseObserver) {
-        final MultiKeyQuery<String, ValueAndTimestamp<JsonNode>> multiKeyQuery = MultiKeyQuery.<String, ValueAndTimestamp<JsonNode>>withKeys(new HashSet<>(request.getSymbolsList()))
+        final MultiKeyQuery<String, JsonNode> multiKeyQuery = MultiKeyQuery.<String, JsonNode>withKeys(new HashSet<>(request.getSymbolsList()))
                 .keySerde(Serdes.String())
-                .valueSerde(SerdeUtil.valueAndTimestampSerde());
+                .valueSerde(SerdeUtil.stockTransactionAggregateJsonNodeSerde());
         final KeyQueryMetadataProto keyMetadata = request.getKeyQueryMetadata();
         final Set<Integer> partitionSet = Collections.singleton(keyMetadata.getPartition());
-        final StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+        final StateQueryResult<KeyValueIterator<String, JsonNode>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                 .withQuery(multiKeyQuery)
                 .withPartitions(partitionSet));
-        final QueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> queryResult = keyQueryResult.getOnlyPartitionResult();
+        final QueryResult<KeyValueIterator<String, JsonNode>> queryResult = keyQueryResult.getOnlyPartitionResult();
 
-        KeyValueIterator<String, ValueAndTimestamp<JsonNode>> aggregations = queryResult.getResult();
+        KeyValueIterator<String, JsonNode> aggregations = queryResult.getResult();
         List<String> jsonResults = new ArrayList<>();
         aggregations.forEachRemaining(kv -> {
-            JsonNode node = kv.value.value();
-            long timestamp = kv.value.timestamp();
-            ((ObjectNode)node).put("timestamp", timestamp);
+            JsonNode node = kv.value;
             jsonResults.add(node.toString());
         });
         responseObserver.onNext(QueryResponseProto.newBuilder().addAllJsonResults(jsonResults).build());

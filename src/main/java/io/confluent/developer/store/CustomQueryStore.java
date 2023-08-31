@@ -59,14 +59,14 @@ public class CustomQueryStore extends StoreDelegate {
     private <R> QueryResult<R> handleFilteredRangeQuery(final Query<R> query,
                                                         final PositionBound positionBound,
                                                         final QueryConfig queryConfig) {
-        FilteredRangeQuery<String, ValueAndTimestamp<JsonNode>> filteredRangeQuery =
-                (FilteredRangeQuery<String, ValueAndTimestamp<JsonNode>>) query;
+        FilteredRangeQuery<String, JsonNode> filteredRangeQuery =
+                (FilteredRangeQuery<String, JsonNode>) query;
         Serializer<String> keySerializer = filteredRangeQuery.keySerde().serializer();
         Deserializer<String> keyDeserializer = filteredRangeQuery.keySerde().deserializer();
-        Deserializer<ValueAndTimestamp<JsonNode>> valueDeserializer = SerdeUtil.valueAndTimestampSerde().deserializer();
+        Deserializer<JsonNode> valueDeserializer = SerdeUtil.stockTransactionAggregateJsonNodeSerde().deserializer();
         String predicate = filteredRangeQuery.predicate();
-        Map<String, ValueAndTimestamp<JsonNode>> allResultsMap = new HashMap<>();
-        List<KeyValue<String, ValueAndTimestamp<JsonNode>>> filteredResults;
+        Map<String, JsonNode> allResultsMap = new HashMap<>();
+        List<KeyValue<String, JsonNode>> filteredResults;
         String lowerBound = filteredRangeQuery.lowerBound().orElse(null);
         String upperBound = filteredRangeQuery.upperBound().orElse(null);
         try (KeyValueIterator<Bytes, byte[]> unfilteredRangeResults = range(Bytes.wrap(keySerializer.serialize(null, lowerBound)),
@@ -74,11 +74,11 @@ public class CustomQueryStore extends StoreDelegate {
 
             unfilteredRangeResults.forEachRemaining(bytesKeyValue -> {
                 String key = keyDeserializer.deserialize(null, bytesKeyValue.key.get());
-                ValueAndTimestamp<JsonNode> value = valueDeserializer.deserialize(null, bytesKeyValue.value);
+                JsonNode value = valueDeserializer.deserialize(null, bytesKeyValue.value);
                 allResultsMap.put(key, value);
             });
 
-            List<String> filteredKeys = JsonPath.parse(objectMapper.writeValueAsString(allResultsMap.values())).read("$..value[?(" + predicate + ")].symbol");
+            List<String> filteredKeys = JsonPath.parse(objectMapper.writeValueAsString(allResultsMap.values())).read("$.[?(" + predicate + ")].symbol");
 
             filteredResults = allResultsMap.entrySet().stream()
                     .filter(entry -> filteredKeys.contains(entry.getKey()))
@@ -93,12 +93,12 @@ public class CustomQueryStore extends StoreDelegate {
     private <R> QueryResult<R> handleMultiKeyQuery(final Query<R> query,
                                                    final PositionBound positionBound,
                                                    final QueryConfig queryConfig) {
-        MultiKeyQuery<String, ValueAndTimestamp<JsonNode>> multiKeyQuery = (MultiKeyQuery<String, ValueAndTimestamp<JsonNode>>) query;
+        MultiKeyQuery<String, JsonNode> multiKeyQuery = (MultiKeyQuery<String, JsonNode>) query;
         long start = time.milliseconds();
         Set<String> keys = multiKeyQuery.keys();
         Serializer<String> keySerializer = multiKeyQuery.keySerde().serializer();
-        Deserializer<ValueAndTimestamp<JsonNode>> valueDeserializer = multiKeyQuery.valueSerde().deserializer();
-        Set<KeyValue<String, ValueAndTimestamp<JsonNode>>> results = new HashSet<>();
+        Deserializer<JsonNode> valueDeserializer = multiKeyQuery.valueSerde().deserializer();
+        Set<KeyValue<String, JsonNode>> results = new HashSet<>();
         keys.forEach(key -> {
             Bytes keyBytes = Bytes.wrap(keySerializer.serialize(null, key));
             byte[] returnedBytes = get(keyBytes);

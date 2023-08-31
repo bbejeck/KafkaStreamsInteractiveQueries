@@ -137,9 +137,9 @@ public class StockController {
                                                        final String upper,
                                                        final String predicate) {
 
-        Query<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> rangeQuery = QueryUtils.createRangeQuery(lower, upper, predicate);
+        Query<KeyValueIterator<String,JsonNode>> rangeQuery = QueryUtils.createRangeQuery(lower, upper, predicate);
 
-        StateQueryRequest<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> queryRequest = StateQueryRequest.inStore(storeName).withQuery(rangeQuery);
+        StateQueryRequest<KeyValueIterator<String, JsonNode>> queryRequest = StateQueryRequest.inStore(storeName).withQuery(rangeQuery);
         if (partitions.isPresent() && !partitions.get().isEmpty()) {
             queryRequest = queryRequest.withPartitions(partitions.get());
         }
@@ -150,7 +150,7 @@ public class StockController {
         QueryResponse<List<JsonNode>> queryResponse;
         List<JsonNode> aggregations = new ArrayList<>();
         if (targetHostInfo.equals(thisHostInfo)) {
-            StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> result = kafkaStreams.query(queryRequest);
+            StateQueryResult<KeyValueIterator<String, JsonNode>> result = kafkaStreams.query(queryRequest);
             aggregations.addAll(extractStateQueryResults(result));
             queryResponse = QueryResponse.withResult(aggregations);
         } else {
@@ -170,7 +170,7 @@ public class StockController {
         }
         HostInfo activeHost = keyMetadata.activeHost();
         Set<HostInfo> standbyHosts = keyMetadata.standbyHosts();
-        KeyQuery<String, ValueAndTimestamp<JsonNode>> keyQuery = KeyQuery.withKey(symbol);
+        KeyQuery<String, JsonNode> keyQuery = KeyQuery.withKey(symbol);
         QueryResponse<JsonNode> queryResponse = doKeyQuery(activeHost, keyQuery, keyMetadata, symbol, HostStatus.ACTIVE);
         if (queryResponse.hasError() && !standbyHosts.isEmpty()) {
             Optional<QueryResponse<JsonNode>> standbyResponse = standbyHosts.stream()
@@ -205,16 +205,16 @@ public class StockController {
         List<JsonNode> intermediateResults = new ArrayList<>();
         List<String> hostList = new ArrayList<>();
         Serde<String> stringSerde = Serdes.String();
-        Serde<ValueAndTimestamp<JsonNode>> txnSerde = SerdeUtil.valueAndTimestampSerde();
+        Serde<JsonNode> txnSerde = SerdeUtil.stockTransactionAggregateJsonNodeSerde();
         metadataSymbolMap.forEach((keyMetadata, symbols) -> {
             HostInfo targetHostInfo = keyMetadata.activeHost();
             if (keyMetadata.activeHost().equals(thisHostInfo)) {
                 Set<Integer> partitionSet = Collections.singleton(keyMetadata.partition());
-                MultiKeyQuery<String, ValueAndTimestamp<JsonNode>> multiKeyQuery = MultiKeyQuery
-                        .<String, ValueAndTimestamp<JsonNode>>withKeys(symbols)
+                MultiKeyQuery<String, JsonNode> multiKeyQuery = MultiKeyQuery
+                        .<String, JsonNode>withKeys(symbols)
                         .keySerde(stringSerde)
                         .valueSerde(txnSerde);
-                StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> stateQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+                StateQueryResult<KeyValueIterator<String, JsonNode>> stateQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                         .withQuery(multiKeyQuery)
                         .withPartitions(partitionSet));
 
@@ -237,19 +237,18 @@ public class StockController {
 
 
     private QueryResponse<JsonNode> doKeyQuery(final HostInfo targetHostInfo,
-                                               final Query<ValueAndTimestamp<JsonNode>> query,
+                                               final Query<JsonNode> query,
                                                final KeyQueryMetadata keyMetadata,
                                                final String symbol,
                                                final HostStatus hostStatus) {
         QueryResponse<JsonNode> queryResponse;
         if (targetHostInfo.equals(thisHostInfo)) {
             Set<Integer> partitionSet = Collections.singleton(keyMetadata.partition());
-            StateQueryResult<ValueAndTimestamp<JsonNode>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+            StateQueryResult<JsonNode> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                     .withQuery(query)
                     .withPartitions(partitionSet));
-            QueryResult<ValueAndTimestamp<JsonNode>> queryResult = keyQueryResult.getOnlyPartitionResult();
-            JsonNode resultNode = queryResult.getResult().value();
-            ((ObjectNode)resultNode).put("timestamp", queryResult.getResult().timestamp());
+            QueryResult<JsonNode> queryResult = keyQueryResult.getOnlyPartitionResult();
+            JsonNode resultNode = queryResult.getResult();
             queryResponse = QueryResponse.withResult(resultNode);
             queryResponse.setHostType(hostStatus.name() + "-" + targetHostInfo.host() + ":" + targetHostInfo.port());
         } else {
@@ -388,11 +387,11 @@ public class StockController {
         temp.retainAll(standbyCandidate.standbyTopicPartitions());
         return temp;
     }
-    private List<JsonNode> extractStateQueryResults(StateQueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> result) {
-        Map<Integer, QueryResult<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>>> allPartitionsResult = result.getPartitionResults();
+    private List<JsonNode> extractStateQueryResults(StateQueryResult<KeyValueIterator<String, JsonNode>> result) {
+        Map<Integer, QueryResult<KeyValueIterator<String, JsonNode>>> allPartitionsResult = result.getPartitionResults();
         List<JsonNode> aggregationResult = new ArrayList<>();
         allPartitionsResult.forEach((key, queryResult) -> {
-            queryResult.getResult().forEachRemaining(kv -> aggregationResult.add(kv.value.value()));
+            queryResult.getResult().forEachRemaining(kv -> aggregationResult.add(kv.value));
         });
         return aggregationResult;
     }

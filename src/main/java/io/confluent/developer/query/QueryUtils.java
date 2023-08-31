@@ -12,7 +12,7 @@ public class QueryUtils {
 
     private QueryUtils(){}
 
-    public static Query<KeyValueIterator<String, ValueAndTimestamp<JsonNode>>> createRangeQuery(String lower, String upper, String jsonPredicate) {
+    public static Query<KeyValueIterator<String,JsonNode>> createRangeQuery(String lower, String upper, String jsonPredicate) {
         if (isNotBlank(jsonPredicate)) {
             return createFilteredRangeQuery(lower, upper, jsonPredicate);
         } else {
@@ -28,10 +28,10 @@ public class QueryUtils {
         }
     }
 
-    public static FilteredRangeQuery<String, ValueAndTimestamp<JsonNode>> createFilteredRangeQuery(String lower, String upper, String jsonPredicate) {
-        return FilteredRangeQuery.<String, ValueAndTimestamp<JsonNode>>withBounds(lower, upper)
+    public static FilteredRangeQuery<String, JsonNode> createFilteredRangeQuery(String lower, String upper, String jsonPredicate) {
+        return FilteredRangeQuery.<String, JsonNode>withBounds(lower, upper)
                 .predicate(jsonPredicate)
-                .serdes(Serdes.String(), SerdeUtil.valueAndTimestampSerde());
+                .serdes(Serdes.String(), SerdeUtil.stockTransactionAggregateJsonNodeSerde());
     }
 
     public static boolean isBlank(String str) {
