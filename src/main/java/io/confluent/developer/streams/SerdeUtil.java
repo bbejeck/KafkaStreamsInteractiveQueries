@@ -35,6 +35,10 @@ public class SerdeUtil {
         return Serdes.serdeFrom(new ValueAndTimestampSerializer(), new ValueAndTimestampDeserializer());
     }
 
+    public static Serde<StockTransactionAggregation> stockTransactionAggregationSerde() {
+        return Serdes.serdeFrom(new ObjectSerializer<>(), new ObjectDeserializer<>(StockTransactionAggregation.class));
+    }
+
     public static class ValueAndTimestampSerializer implements Serializer<ValueAndTimestamp<JsonNode>> {
         private final LongSerializer longSerializer = new LongSerializer();
         private final ObjectSerializer<JsonNode> stockTransactionAggregationResponseSerializer = new ObjectSerializer<>();

@@ -36,11 +36,18 @@ message RangeQueryRequestProto {
   repeated int32 partitions = 4;
 }
 
+message StockTransactionAggregationProto {
+   string symbol = 1;
+   double buys = 2;
+   double sells = 3;
+}
+
 message QueryResponseProto {
   string error_message = 1;
   repeated string execution_info = 2;
   string host_info = 3;
   repeated string json_results = 4;
+  repeated StockTransactionAggregationProto aggregations = 5;
 }
 message Empty {}
 

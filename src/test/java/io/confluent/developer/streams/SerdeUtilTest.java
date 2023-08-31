@@ -37,10 +37,25 @@ class SerdeUtilTest {
     }
 
     @Test
-    void roundTripStockTransactionAggregateSerdeTest() {
+    void roundTripStockTransactionJsonNodeAggregateSerdeTest() {
         byte[] serialized = stockJsonNodeSerde.serializer().serialize(topic, originalJsonNode);
         JsonNode deserialized = stockJsonNodeSerde.deserializer().deserialize(topic, serialized);
         assertEquals(deserialized, originalJsonNode);
+    }
+
+    @Test
+    void roundTripFromAggregationToStringToJsonNode() throws Exception {
+        StockTransactionAggregation stockTransactionAggregation = new StockTransactionAggregation("BWB", 333.0, 333.0);
+        String aggregationJson = mapper.writeValueAsString(stockTransactionAggregation);
+        JsonNode aggregationJsonNode = mapper.readTree(aggregationJson);
+
+        // Kafka Streams serializing to store
+        byte[] aggregationBytes = SerdeUtil.stockTransactionAggregationSerde().serializer().serialize(null, stockTransactionAggregation);
+        // IQ deserializing to string for JSON work
+        JsonNode rehydratedNode = SerdeUtil.stockTransactionAggregateJsonNodeSerde().deserializer().deserialize(null, aggregationBytes);
+        
+        assertEquals(rehydratedNode, aggregationJsonNode);
+
     }
 
     @Test

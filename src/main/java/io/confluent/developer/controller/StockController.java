@@ -10,6 +10,7 @@ import io.confluent.developer.proto.KeyQueryRequestProto;
 import io.confluent.developer.proto.MultKeyQueryRequestProto;
 import io.confluent.developer.proto.QueryResponseProto;
 import io.confluent.developer.proto.RangeQueryRequestProto;
+import io.confluent.developer.proto.StockTransactionAggregationProto;
 import io.confluent.developer.query.MultiKeyQuery;
 import io.confluent.developer.query.QueryResponse;
 import io.confluent.developer.query.QueryUtils;
@@ -320,10 +321,10 @@ public class StockController {
 
             KeyQueryRequestProto keyQueryRequest = KeyQueryRequestProto.newBuilder().setSymbol(symbol).setKeyQueryMetadata(keyQueryMetadata).build();
             QueryResponseProto queryResponseProto = blockingStub.keyQueryService(keyQueryRequest);
-            JsonNode node = objectMapper.readTree(queryResponseProto.getJsonResultsList().get(0));
-            remoteResponse = (QueryResponse<V>) QueryResponse.withResult(node);
+            StockTransactionAggregationProto aggregationProto =   queryResponseProto.getAggregations(0);
+            remoteResponse = (QueryResponse<V>) QueryResponse.withResult(aggregationProto);
             remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
-        } catch (StatusRuntimeException |JsonProcessingException exception) {
+        } catch (StatusRuntimeException exception) {
             remoteResponse = QueryResponse.withError(exception.getMessage());
         } finally {
             if (channel != null) {

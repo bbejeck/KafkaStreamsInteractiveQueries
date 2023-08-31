@@ -5,10 +5,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.confluent.developer.model.StockTransactionAggregation;
 import io.confluent.developer.proto.HostInfoProto;
 import io.confluent.developer.proto.KeyQueryMetadataProto;
 import io.confluent.developer.proto.KeyQueryRequestProto;
 import io.confluent.developer.proto.QueryResponseProto;
+import io.confluent.developer.proto.StockTransactionAggregationProto;
 import io.confluent.developer.streams.SerdeUtil;
 import io.grpc.internal.testing.StreamRecorder;
 import org.apache.kafka.common.serialization.Serdes;
@@ -40,7 +42,6 @@ class InternalQueryServiceTest {
     void setUp() {
         internalQueryService = new InternalQueryService(kafkaStreams);
         internalQueryService.stringSerde = Serdes.String();
-        internalQueryService.valueAndTimestampSerde = SerdeUtil.valueAndTimestampSerde();
         internalQueryService.storeName = storeName;
     }
 
@@ -62,17 +63,17 @@ class InternalQueryServiceTest {
 
         long currentTime = Instant.now().toEpochMilli();
 
-        ObjectNode originalJsonNode = JsonNodeFactory.instance.objectNode();
-        originalJsonNode.put("symbol", "CFLT");
-        originalJsonNode.put("buys", 1000.0);
-        originalJsonNode.put("sells", 1000.0);
-        originalJsonNode.put("timestamp", currentTime);
 
-        String expectedJson = objectWriter.writeValueAsString(originalJsonNode);
+        StockTransactionAggregationProto.Builder expectedProto = StockTransactionAggregationProto.newBuilder()
+                .setSymbol("CFLT")
+                .setSells(1000.0)
+                .setBuys(1000.0);
+
+        StockTransactionAggregation aggregation = new StockTransactionAggregation("CFLT", 1000.0, 1000.0);
 
 
-        QueryResult<ValueAndTimestamp<JsonNode>> queryResult = QueryResult.forResult(ValueAndTimestamp.make(originalJsonNode, currentTime));
-        StateQueryResult<ValueAndTimestamp<JsonNode>> stateQueryResult = new StateQueryResult<>();
+        QueryResult<StockTransactionAggregation> queryResult = QueryResult.forResult(aggregation);
+        StateQueryResult<StockTransactionAggregation> stateQueryResult = new StateQueryResult<>();
         stateQueryResult.addResult(1, queryResult);
 
         when(kafkaStreams.query(Mockito.any(StateQueryRequest.class))).thenReturn(stateQueryResult);
@@ -85,7 +86,7 @@ class InternalQueryServiceTest {
         }
         assertNull(responseObserver.getError());
         QueryResponseProto queryResponseProto = responseObserver.getValues().get(0);
-        assertEquals(queryResponseProto.getJsonResultsList().get(0), expectedJson);
+        assertEquals(queryResponseProto.getAggregations(0), expectedProto.build());
 
 
     }

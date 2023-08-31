@@ -1,13 +1,16 @@
 package io.confluent.developer.grpc.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.confluent.developer.model.StockTransactionAggregation;
 import io.confluent.developer.proto.InternalQueryGrpc;
 import io.confluent.developer.proto.KeyQueryMetadataProto;
 import io.confluent.developer.proto.KeyQueryRequestProto;
 import io.confluent.developer.proto.MultKeyQueryRequestProto;
 import io.confluent.developer.proto.QueryResponseProto;
 import io.confluent.developer.proto.RangeQueryRequestProto;
+import io.confluent.developer.proto.StockTransactionAggregationProto;
 import io.confluent.developer.query.FilteredRangeQuery;
 import io.confluent.developer.query.MultiKeyQuery;
 import io.confluent.developer.query.QueryUtils;
@@ -41,12 +44,14 @@ import java.util.Set;
 public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBase {
 
     private final KafkaStreams kafkaStreams;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     @Value("${store.name}")
     String storeName;
     // protected scope for testing
     Serde<String> stringSerde;
     // protected scope for testing
-    Serde<ValueAndTimestamp<JsonNode>> valueAndTimestampSerde;
+
+
 
     @Autowired
     public InternalQueryService(KafkaStreams kafkaStreams) {
@@ -56,7 +61,6 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
     @PostConstruct
     public void init() {
         stringSerde = Serdes.String();
-        valueAndTimestampSerde = SerdeUtil.valueAndTimestampSerde();
     }
 
 
@@ -64,18 +68,21 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
     public void keyQueryService(final KeyQueryRequestProto request,
                                 final StreamObserver<QueryResponseProto> responseObserver) {
 
-        final KeyQuery<String, JsonNode> keyQuery = KeyQuery.withKey(request.getSymbol());
+        final KeyQuery<String, StockTransactionAggregation> keyQuery = KeyQuery.withKey(request.getSymbol());
         final KeyQueryMetadataProto keyMetadata = request.getKeyQueryMetadata();
         final Set<Integer> partitionSet = Collections.singleton(keyMetadata.getPartition());
-        final StateQueryResult<JsonNode> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+        final StateQueryResult<StockTransactionAggregation> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                 .withQuery(keyQuery)
                 .withPartitions(partitionSet));
-        final QueryResult<JsonNode> queryResult = keyQueryResult.getOnlyPartitionResult();
+        final QueryResult<StockTransactionAggregation> queryResult = keyQueryResult.getOnlyPartitionResult();
 
         final QueryResponseProto.Builder repsonseBuilder = QueryResponseProto.newBuilder();
-        JsonNode aggregation = queryResult.getResult();
+        StockTransactionAggregation aggregation = queryResult.getResult();
         repsonseBuilder.addAllExecutionInfo(queryResult.getExecutionInfo());
-        repsonseBuilder.addJsonResults(aggregation.toString());
+        StockTransactionAggregationProto.Builder builder = StockTransactionAggregationProto.newBuilder();
+        repsonseBuilder.addAggregations(builder.setSymbol(aggregation.getSymbol())
+                .setBuys(aggregation.getBuys())
+                .setSells(aggregation.getSells()));
         responseObserver.onNext(repsonseBuilder.build());
         responseObserver.onCompleted();
     }
