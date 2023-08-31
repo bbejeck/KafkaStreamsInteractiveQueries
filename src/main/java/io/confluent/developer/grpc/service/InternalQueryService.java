@@ -1,8 +1,6 @@
 package io.confluent.developer.grpc.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.confluent.developer.model.StockTransactionAggregation;
 import io.confluent.developer.proto.InternalQueryGrpc;
 import io.confluent.developer.proto.KeyQueryMetadataProto;
@@ -11,7 +9,6 @@ import io.confluent.developer.proto.MultKeyQueryRequestProto;
 import io.confluent.developer.proto.QueryResponseProto;
 import io.confluent.developer.proto.RangeQueryRequestProto;
 import io.confluent.developer.proto.StockTransactionAggregationProto;
-import io.confluent.developer.query.FilteredRangeQuery;
 import io.confluent.developer.query.MultiKeyQuery;
 import io.confluent.developer.query.QueryUtils;
 import io.confluent.developer.streams.SerdeUtil;
@@ -25,7 +22,6 @@ import org.apache.kafka.streams.query.QueryResult;
 import org.apache.kafka.streams.query.StateQueryRequest;
 import org.apache.kafka.streams.query.StateQueryResult;
 import org.apache.kafka.streams.state.KeyValueIterator;
-import org.apache.kafka.streams.state.ValueAndTimestamp;
 import org.lognet.springboot.grpc.GRpcService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -89,48 +85,55 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
 
     @Override
     public void rangeQueryService(RangeQueryRequestProto request, StreamObserver<QueryResponseProto> responseObserver) {
-        final Query<KeyValueIterator<String, JsonNode>> rangeQuery =
+        final Query<KeyValueIterator<String, StockTransactionAggregation>> rangeQuery =
                 QueryUtils.createRangeQuery(request.getLower(), request.getUpper(), request.getPredicate());
 
-        final StateQueryResult<KeyValueIterator<String, JsonNode>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+        final StateQueryResult<KeyValueIterator<String, StockTransactionAggregation>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                 .withQuery(rangeQuery)
                 .withPartitions(new HashSet<>(request.getPartitionsList())));
-        final Map<Integer, QueryResult<KeyValueIterator<String, JsonNode>>> allPartitionResults = keyQueryResult.getPartitionResults();
+        final Map<Integer, QueryResult<KeyValueIterator<String, StockTransactionAggregation>>> allPartitionResults = keyQueryResult.getPartitionResults();
 
         final QueryResponseProto.Builder repsonseBuilder = QueryResponseProto.newBuilder();
 
-        List<String> jsonResults = new ArrayList<>();
+        List<StockTransactionAggregationProto> remoteRangeResults = new ArrayList<>();
+        StockTransactionAggregationProto.Builder builder = StockTransactionAggregationProto.newBuilder();
         allPartitionResults.forEach((k, v) -> {
             var keyValues = v.getResult();
             keyValues.forEachRemaining(kv -> {
-                JsonNode node = kv.value;
-                jsonResults.add(node.toString());
+                               builder.setSymbol(kv.value.getSymbol())
+                                .setBuys(kv.value.getBuys())
+                                        .setSells(kv.value.getSells());
+
+                remoteRangeResults.add(builder.build());
             });
         });
-        repsonseBuilder.addAllJsonResults(jsonResults);
+        repsonseBuilder.addAllAggregations(remoteRangeResults);
         responseObserver.onNext(repsonseBuilder.build());
         responseObserver.onCompleted();
     }
 
     @Override
     public void multiKeyQueryService(MultKeyQueryRequestProto request, StreamObserver<QueryResponseProto> responseObserver) {
-        final MultiKeyQuery<String, JsonNode> multiKeyQuery = MultiKeyQuery.<String, JsonNode>withKeys(new HashSet<>(request.getSymbolsList()))
+        final MultiKeyQuery<String, StockTransactionAggregation> multiKeyQuery = MultiKeyQuery.<String, StockTransactionAggregation>withKeys(new HashSet<>(request.getSymbolsList()))
                 .keySerde(Serdes.String())
-                .valueSerde(SerdeUtil.stockTransactionAggregateJsonNodeSerde());
+                .valueSerde(SerdeUtil.stockTransactionAggregationSerde());
         final KeyQueryMetadataProto keyMetadata = request.getKeyQueryMetadata();
         final Set<Integer> partitionSet = Collections.singleton(keyMetadata.getPartition());
-        final StateQueryResult<KeyValueIterator<String, JsonNode>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+        final StateQueryResult<KeyValueIterator<String, StockTransactionAggregation>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                 .withQuery(multiKeyQuery)
                 .withPartitions(partitionSet));
-        final QueryResult<KeyValueIterator<String, JsonNode>> queryResult = keyQueryResult.getOnlyPartitionResult();
+        final QueryResult<KeyValueIterator<String, StockTransactionAggregation>> queryResult = keyQueryResult.getOnlyPartitionResult();
 
-        KeyValueIterator<String, JsonNode> aggregations = queryResult.getResult();
-        List<String> jsonResults = new ArrayList<>();
+        KeyValueIterator<String, StockTransactionAggregation> aggregations = queryResult.getResult();
+        List<StockTransactionAggregationProto> aggregationProtos = new ArrayList<>();
+        StockTransactionAggregationProto.Builder builder = StockTransactionAggregationProto.newBuilder();
         aggregations.forEachRemaining(kv -> {
-            JsonNode node = kv.value;
-            jsonResults.add(node.toString());
+             StockTransactionAggregation aggregation = kv.value;
+            aggregationProtos.add(builder.setSymbol(aggregation.getSymbol())
+                    .setBuys(aggregation.getBuys())
+                    .setSells(aggregation.getSells()).build());
         });
-        responseObserver.onNext(QueryResponseProto.newBuilder().addAllJsonResults(jsonResults).build());
+        responseObserver.onNext(QueryResponseProto.newBuilder().addAllAggregations(aggregationProtos).build());
         responseObserver.onCompleted();
     }
 }
