@@ -1,6 +1,5 @@
 package io.confluent.developer.grpc.service;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.developer.model.StockTransactionAggregation;
 import io.confluent.developer.proto.InternalQueryGrpc;
 import io.confluent.developer.proto.KeyQueryMetadataProto;
@@ -40,7 +39,6 @@ import java.util.Set;
 public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBase {
 
     private final KafkaStreams kafkaStreams;
-    private final ObjectMapper objectMapper = new ObjectMapper();
     @Value("${store.name}")
     String storeName;
     // protected scope for testing
@@ -64,34 +62,31 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
     public void keyQueryService(final KeyQueryRequestProto request,
                                 final StreamObserver<QueryResponseProto> responseObserver) {
 
-        final KeyQuery<String, StockTransactionAggregation> keyQuery = KeyQuery.withKey(request.getSymbol());
+        final KeyQuery<String, StockTransactionAggregationProto> keyQuery = KeyQuery.withKey(request.getSymbol());
         final KeyQueryMetadataProto keyMetadata = request.getKeyQueryMetadata();
         final Set<Integer> partitionSet = Collections.singleton(keyMetadata.getPartition());
-        final StateQueryResult<StockTransactionAggregation> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+        final StateQueryResult<StockTransactionAggregationProto> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                 .withQuery(keyQuery)
                 .withPartitions(partitionSet));
-        final QueryResult<StockTransactionAggregation> queryResult = keyQueryResult.getOnlyPartitionResult();
+        final QueryResult<StockTransactionAggregationProto> queryResult = keyQueryResult.getOnlyPartitionResult();
 
         final QueryResponseProto.Builder repsonseBuilder = QueryResponseProto.newBuilder();
-        StockTransactionAggregation aggregation = queryResult.getResult();
+        StockTransactionAggregationProto aggregation = queryResult.getResult();
         repsonseBuilder.addAllExecutionInfo(queryResult.getExecutionInfo());
-        StockTransactionAggregationProto.Builder builder = StockTransactionAggregationProto.newBuilder();
-        repsonseBuilder.addAggregations(builder.setSymbol(aggregation.getSymbol())
-                .setBuys(aggregation.getBuys())
-                .setSells(aggregation.getSells()));
+        repsonseBuilder.addAggregations(aggregation);
         responseObserver.onNext(repsonseBuilder.build());
         responseObserver.onCompleted();
     }
 
     @Override
     public void rangeQueryService(RangeQueryRequestProto request, StreamObserver<QueryResponseProto> responseObserver) {
-        final Query<KeyValueIterator<String, StockTransactionAggregation>> rangeQuery =
+        final Query<KeyValueIterator<String, StockTransactionAggregationProto>> rangeQuery =
                 QueryUtils.createRangeQuery(request.getLower(), request.getUpper(), request.getPredicate());
 
-        final StateQueryResult<KeyValueIterator<String, StockTransactionAggregation>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+        final StateQueryResult<KeyValueIterator<String, StockTransactionAggregationProto>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                 .withQuery(rangeQuery)
                 .withPartitions(new HashSet<>(request.getPartitionsList())));
-        final Map<Integer, QueryResult<KeyValueIterator<String, StockTransactionAggregation>>> allPartitionResults = keyQueryResult.getPartitionResults();
+        final Map<Integer, QueryResult<KeyValueIterator<String, StockTransactionAggregationProto>>> allPartitionResults = keyQueryResult.getPartitionResults();
 
         final QueryResponseProto.Builder repsonseBuilder = QueryResponseProto.newBuilder();
 

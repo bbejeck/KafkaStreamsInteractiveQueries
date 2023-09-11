@@ -2,13 +2,14 @@ package io.confluent.developer.streams;
 
 import io.confluent.developer.config.KafkaStreamsAppConfiguration;
 import io.confluent.developer.model.StockTransaction;
-import io.confluent.developer.model.StockTransactionAggregation;
+import io.confluent.developer.proto.StockTransactionAggregationProto;
 import io.confluent.developer.store.CustomQueryStores;
 import org.apache.kafka.common.serialization.Serde;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.utils.Bytes;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.Topology;
+import org.apache.kafka.streams.kstream.Aggregator;
 import org.apache.kafka.streams.kstream.Consumed;
 import org.apache.kafka.streams.kstream.Initializer;
 import org.apache.kafka.streams.kstream.KStream;
@@ -32,9 +33,20 @@ public class AggregationStream {
 
     private final Serde<String> stringSerde = Serdes.String();
     private final Serde<StockTransaction> stockTransactionSerde = SerdeUtil.stockTransactionSerde();
-    private final Serde<StockTransactionAggregation> stockTransactionAggregationSerde = SerdeUtil.stockTransactionAggregationSerde();
+    private final Serde<StockTransactionAggregationProto> protoSerde = SerdeUtil.stockTransactionAggregationProtoJsonSerde();
+    private final Initializer<StockTransactionAggregationProto> initializer = () -> StockTransactionAggregationProto.newBuilder().build();
 
-    private final Initializer<StockTransactionAggregation> initializer = StockTransactionAggregation::new;
+    private final Aggregator<String, StockTransaction, StockTransactionAggregationProto> aggregator = (key, value, agg) -> {
+        StockTransactionAggregationProto.Builder builder = agg.toBuilder();
+        boolean isBuy = value.getBuy();
+        if (isBuy) {
+            builder.setBuys(value.getAmount() + builder.getBuys());
+        } else {
+            builder.setSells(value.getAmount() + builder.getSells());
+        }
+        builder.setSymbol(value.getSymbol());
+        return builder.build();
+    };
 
     public Topology topology() {
         StreamsBuilder builder = new StreamsBuilder();
@@ -46,15 +58,14 @@ public class AggregationStream {
 
         KeyValueBytesStoreSupplier persistentSupplier =
                 CustomQueryStores.customPersistentStoreSupplier(streamsConfiguration.storeName());
-        Materialized<String, StockTransactionAggregation, KeyValueStore<Bytes, byte[]>> materialized = Materialized.as(persistentSupplier);
-        materialized.withKeySerde(stringSerde).withValueSerde(stockTransactionAggregationSerde);
+        Materialized<String, StockTransactionAggregationProto, KeyValueStore<Bytes, byte[]>> materialized = Materialized.as(persistentSupplier);
+        materialized.withKeySerde(stringSerde).withValueSerde(protoSerde);
 
         input.groupByKey()
-                .aggregate(initializer,
-                        (k, v, agg) -> agg.update(v), materialized )
+                .aggregate(initializer, aggregator, materialized)
                 .toStream()
                 .peek((k, v) -> System.out.println("Aggregation result key " + k + " value " + v))
-                .to(streamsConfiguration.outputTopic(), Produced.with(stringSerde, stockTransactionAggregationSerde));
+                .to(streamsConfiguration.outputTopic(), Produced.with(stringSerde, protoSerde));
 
         return builder.build();
     }

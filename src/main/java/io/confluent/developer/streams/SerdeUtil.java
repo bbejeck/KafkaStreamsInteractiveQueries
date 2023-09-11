@@ -5,8 +5,13 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
+import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.protobuf.Message;
+import com.google.protobuf.MessageOrBuilder;
+import com.google.protobuf.util.JsonFormat;
 import io.confluent.developer.model.StockTransaction;
 import io.confluent.developer.model.StockTransactionAggregation;
+import io.confluent.developer.proto.StockTransactionAggregationProto;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.LongDeserializer;
 import org.apache.kafka.common.serialization.LongSerializer;
@@ -17,6 +22,7 @@ import org.apache.kafka.streams.state.ValueAndTimestamp;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 
 public class SerdeUtil {
 
@@ -37,6 +43,11 @@ public class SerdeUtil {
 
     public static Serde<StockTransactionAggregation> stockTransactionAggregationSerde() {
         return Serdes.serdeFrom(new ObjectSerializer<>(), new ObjectDeserializer<>(StockTransactionAggregation.class));
+    }
+
+    public static Serde<StockTransactionAggregationProto> stockTransactionAggregationProtoJsonSerde() {
+        return Serdes.serdeFrom(new ProtoAggregationJsonSerializer<>(),
+                new ProtoAggregationDeserializer<>(StockTransactionAggregationProto.newBuilder()));
     }
 
     public static class ValueAndTimestampSerializer implements Serializer<ValueAndTimestamp<JsonNode>> {
@@ -80,6 +91,45 @@ public class SerdeUtil {
         public void close() {
             longDeserializer.close();
             jsonNodeDeserializer.close();
+        }
+    }
+
+    public static class ProtoAggregationJsonSerializer<T extends Message> implements Serializer<T> {
+
+        private final JsonFormat.Printer printer = JsonFormat.printer();
+        @Override
+        public byte[] serialize(String topic, T data) {
+            if (data == null) {
+                return null;
+            }
+            try {
+                return printer.print(data).getBytes(StandardCharsets.UTF_8);
+            } catch (InvalidProtocolBufferException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    public static class ProtoAggregationDeserializer<T extends Message> implements Deserializer<T> {
+        private final JsonFormat.Parser parser = JsonFormat.parser();
+
+        private final Message.Builder builder;
+
+        public ProtoAggregationDeserializer(Message.Builder builder) {
+            this.builder = builder;
+        }
+
+        @Override
+        public T deserialize(String topic, byte[] data) {
+            String json = new String(data, StandardCharsets.UTF_8);
+            try {
+                parser.merge(json, builder);
+                T obj = (T) builder.build();
+                builder.clear();
+                return obj;
+            } catch (InvalidProtocolBufferException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 

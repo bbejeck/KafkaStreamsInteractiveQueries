@@ -14,14 +14,14 @@ import java.time.Duration;
 import java.util.Properties;
 
 @Component
-public class KafkaStreamsContainer {
+public class KafkaStreamsService {
     private final KafkaStreamsAppConfiguration appConfiguration;
     private final AggregationStream aggregationStream;
     private KafkaStreams kafkaStreams;
 
     @Autowired
-    public KafkaStreamsContainer(final AggregationStream aggregationStream,
-                                 final KafkaStreamsAppConfiguration appConfiguration) {
+    public KafkaStreamsService(final AggregationStream aggregationStream,
+                               final KafkaStreamsAppConfiguration appConfiguration) {
         this.aggregationStream = aggregationStream;
         this.appConfiguration = appConfiguration;
     }

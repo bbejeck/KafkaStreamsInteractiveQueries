@@ -1,12 +1,11 @@
 package io.confluent.developer;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.confluent.developer.model.StockTransaction;
 import io.confluent.developer.model.StockTransactionAggregation;
 import io.confluent.developer.query.QueryResponse;
-import io.confluent.developer.streams.KafkaStreamsContainer;
+import io.confluent.developer.streams.KafkaStreamsService;
 import io.confluent.developer.streams.SerdeUtil;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
@@ -176,7 +175,7 @@ class InteractiveQueriesIntegrationTest {
         produceInputRecords(3, SYMBOL_ONE, SYMBOL_TWO);
 
 
-        KafkaStreamsContainer streamsContainer = contextOne.getBean(KafkaStreamsContainer.class);
+        KafkaStreamsService streamsContainer = contextOne.getBean(KafkaStreamsService.class);
         KafkaStreams kafkaStreams = streamsContainer.kafkaStreams();
         Set<ThreadMetadata> metadataSet = kafkaStreams.metadataForLocalThreads();
         metadataSet.forEach((threadMetadata -> {

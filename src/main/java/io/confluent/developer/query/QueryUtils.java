@@ -1,6 +1,7 @@
 package io.confluent.developer.query;
 
 import io.confluent.developer.model.StockTransactionAggregation;
+import io.confluent.developer.proto.StockTransactionAggregationProto;
 import io.confluent.developer.streams.SerdeUtil;
 import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.query.Query;
@@ -11,7 +12,7 @@ public class QueryUtils {
 
     private QueryUtils(){}
 
-    public static Query<KeyValueIterator<String, StockTransactionAggregation>> createRangeQuery(String lower, String upper, String jsonPredicate) {
+    public static Query<KeyValueIterator<String, StockTransactionAggregationProto>> createRangeQuery(String lower, String upper, String jsonPredicate) {
         if (isNotBlank(jsonPredicate)) {
             return createFilteredRangeQuery(lower, upper, jsonPredicate);
         } else {
@@ -27,10 +28,10 @@ public class QueryUtils {
         }
     }
 
-    public static FilteredRangeQuery<String, StockTransactionAggregation> createFilteredRangeQuery(String lower, String upper, String jsonPredicate) {
-        return FilteredRangeQuery.<String, StockTransactionAggregation>withBounds(lower, upper)
+    public static FilteredRangeQuery<String, StockTransactionAggregationProto> createFilteredRangeQuery(String lower, String upper, String jsonPredicate) {
+        return FilteredRangeQuery.<String, StockTransactionAggregationProto>withBounds(lower, upper)
                 .predicate(jsonPredicate)
-                .serdes(Serdes.String(), SerdeUtil.stockTransactionAggregationSerde());
+                .serdes(Serdes.String(), SerdeUtil.stockTransactionAggregationProtoJsonSerde());
     }
 
     public static boolean isBlank(String str) {

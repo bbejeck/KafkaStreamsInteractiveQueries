@@ -96,16 +96,16 @@ public class StockController {
     }
 
     @GetMapping(value = "/range")
-    public QueryResponse<List<StockTransactionAggregation>> getAggregationRange(@RequestParam(required = false) String lower,
+    public QueryResponse<List<StockTransactionAggregationProto>> getAggregationRange(@RequestParam(required = false) String lower,
                                                              @RequestParam(required = false) String upper,
                                                              @RequestParam(required = false) String filter) {
 
         Collection<StreamsMetadata> streamsMetadata = kafkaStreams.streamsMetadataForStore(storeName);
-        List<StockTransactionAggregation> aggregations = new ArrayList<>();
+        List<StockTransactionAggregationProto> aggregations = new ArrayList<>();
 
         streamsMetadata.forEach(streamsClient -> {
             Set<Integer> partitions = getPartitions(streamsClient.topicPartitions());
-            QueryResponse<List<StockTransactionAggregation>> queryResponse = doRangeQuery(streamsClient.hostInfo(),
+            QueryResponse<List<StockTransactionAggregationProto>> queryResponse = doRangeQuery(streamsClient.hostInfo(),
                     Optional.of(partitions),
                     Optional.empty(),
                     lower,
@@ -115,7 +115,7 @@ public class StockController {
                 aggregations.addAll(queryResponse.getResult());
             } else {
                 List<StreamsMetadata> standbys = getStandbyClients(streamsClient, streamsMetadata);
-                Optional<QueryResponse<List<StockTransactionAggregation>>> standbyResponse = standbys.stream().map(standby -> {
+                Optional<QueryResponse<List<StockTransactionAggregationProto>>> standbyResponse = standbys.stream().map(standby -> {
                             Set<TopicPartition> standbyTopicPartitions = getStandbyTopicPartitions(streamsClient, standby);
                             Set<Integer> standbyPartitions = getPartitions(standbyTopicPartitions);
                             return doRangeQuery(standby.hostInfo(), Optional.of(standbyPartitions), Optional.empty(), lower, upper, filter);
@@ -128,16 +128,16 @@ public class StockController {
         return QueryResponse.withResult(aggregations);
     }
 
-    private QueryResponse<List<StockTransactionAggregation>> doRangeQuery(final HostInfo targetHostInfo,
+    private QueryResponse<List<StockTransactionAggregationProto>> doRangeQuery(final HostInfo targetHostInfo,
                                                        final Optional<Set<Integer>> partitions,
                                                        final Optional<PositionBound> positionBound,
                                                        final String lower,
                                                        final String upper,
                                                        final String predicate) {
 
-        Query<KeyValueIterator<String,StockTransactionAggregation>> rangeQuery = QueryUtils.createRangeQuery(lower, upper, predicate);
+        Query<KeyValueIterator<String,StockTransactionAggregationProto>> rangeQuery = QueryUtils.createRangeQuery(lower, upper, predicate);
 
-        StateQueryRequest<KeyValueIterator<String, StockTransactionAggregation>> queryRequest = StateQueryRequest.inStore(storeName).withQuery(rangeQuery);
+        StateQueryRequest<KeyValueIterator<String, StockTransactionAggregationProto>> queryRequest = StateQueryRequest.inStore(storeName).withQuery(rangeQuery);
         if (partitions.isPresent() && !partitions.get().isEmpty()) {
             queryRequest = queryRequest.withPartitions(partitions.get());
         }
@@ -145,10 +145,10 @@ public class StockController {
             queryRequest = queryRequest.withPositionBound(positionBound.get());
         }
 
-        QueryResponse<List<StockTransactionAggregation>> queryResponse;
-        List<StockTransactionAggregation> aggregations = new ArrayList<>();
+        QueryResponse<List<StockTransactionAggregationProto>> queryResponse;
+        List<StockTransactionAggregationProto> aggregations = new ArrayList<>();
         if (targetHostInfo.equals(thisHostInfo)) {
-            StateQueryResult<KeyValueIterator<String, StockTransactionAggregation>> result = kafkaStreams.query(queryRequest);
+            StateQueryResult<KeyValueIterator<String, StockTransactionAggregationProto>> result = kafkaStreams.query(queryRequest);
             aggregations.addAll(extractStateQueryResults(result));
             queryResponse = QueryResponse.withResult(aggregations);
         } else {
@@ -183,7 +183,7 @@ public class StockController {
     }
 
     @GetMapping(value = "/multikey/{symbols}")
-    public QueryResponse<List<StockTransactionAggregation>> getMultiAggregationKeyQuery(@PathVariable List<String> symbols) {
+    public QueryResponse<List<StockTransactionAggregationProto>> getMultiAggregationKeyQuery(@PathVariable List<String> symbols) {
         Map<KeyQueryMetadata, Set<String>> metadataSymbolMap = new HashMap<>();
         symbols.forEach(symbol -> {
             KeyQueryMetadata metadata = getKeyMetadata(symbol, Serdes.String().serializer());
@@ -195,22 +195,22 @@ public class StockController {
     }
 
 
-    private QueryResponse<List<StockTransactionAggregation>> doMultiKeyQuery(final Map<KeyQueryMetadata,
+    private QueryResponse<List<StockTransactionAggregationProto>> doMultiKeyQuery(final Map<KeyQueryMetadata,
             Set<String>> metadataSymbolMap) {
 
-        List<StockTransactionAggregation> intermediateResults = new ArrayList<>();
+        List<StockTransactionAggregationProto> intermediateResults = new ArrayList<>();
         List<String> hostList = new ArrayList<>();
         Serde<String> stringSerde = Serdes.String();
-        Serde<StockTransactionAggregation> txnSerde = SerdeUtil.stockTransactionAggregationSerde();
+        Serde<StockTransactionAggregationProto> txnSerde = SerdeUtil.stockTransactionAggregationProtoJsonSerde();
         metadataSymbolMap.forEach((keyMetadata, symbols) -> {
             HostInfo targetHostInfo = keyMetadata.activeHost();
             if (keyMetadata.activeHost().equals(thisHostInfo)) {
                 Set<Integer> partitionSet = Collections.singleton(keyMetadata.partition());
-                MultiKeyQuery<String, StockTransactionAggregation> multiKeyQuery = MultiKeyQuery
-                        .<String, StockTransactionAggregation>withKeys(symbols)
+                MultiKeyQuery<String, StockTransactionAggregationProto> multiKeyQuery = MultiKeyQuery
+                        .<String, StockTransactionAggregationProto>withKeys(symbols)
                         .keySerde(stringSerde)
                         .valueSerde(txnSerde);
-                StateQueryResult<KeyValueIterator<String, StockTransactionAggregation>> stateQueryResult =
+                StateQueryResult<KeyValueIterator<String, StockTransactionAggregationProto>> stateQueryResult =
                         kafkaStreams.query(StateQueryRequest.inStore(storeName)
                         .withQuery(multiKeyQuery)
                         .withPartitions(partitionSet));
@@ -218,7 +218,7 @@ public class StockController {
                 intermediateResults.addAll(extractStateQueryResults(stateQueryResult));
 
             } else {
-                QueryResponse<List<StockTransactionAggregation>> queryResponse;
+                QueryResponse<List<StockTransactionAggregationProto>> queryResponse;
                 String host = targetHostInfo.host();
                 // By convention all gRPC ports are Kafka Streams host port - 2000
                 int port = targetHostInfo.port() - 2000;
@@ -227,7 +227,7 @@ public class StockController {
                 intermediateResults.addAll(queryResponse.getResult());
             }
         });
-        QueryResponse<List<StockTransactionAggregation>> finalResult = QueryResponse.withResult(intermediateResults);
+        QueryResponse<List<StockTransactionAggregationProto>> finalResult = QueryResponse.withResult(intermediateResults);
         finalResult.setHostType(hostList.toString());
         return finalResult;
     }
@@ -377,9 +377,9 @@ public class StockController {
         temp.retainAll(standbyCandidate.standbyTopicPartitions());
         return temp;
     }
-    private List<StockTransactionAggregation> extractStateQueryResults(StateQueryResult<KeyValueIterator<String, StockTransactionAggregation>> result) {
-        Map<Integer, QueryResult<KeyValueIterator<String, StockTransactionAggregation>>> allPartitionsResult = result.getPartitionResults();
-        List<StockTransactionAggregation> aggregationResult = new ArrayList<>();
+    private List<StockTransactionAggregationProto> extractStateQueryResults(StateQueryResult<KeyValueIterator<String, StockTransactionAggregationProto>> result) {
+        Map<Integer, QueryResult<KeyValueIterator<String, StockTransactionAggregationProto>>> allPartitionsResult = result.getPartitionResults();
+        List<StockTransactionAggregationProto> aggregationResult = new ArrayList<>();
         allPartitionsResult.forEach((key, queryResult) -> {
             queryResult.getResult().forEachRemaining(kv -> aggregationResult.add(kv.value));
         });

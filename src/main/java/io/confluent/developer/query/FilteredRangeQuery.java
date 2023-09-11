@@ -7,19 +7,19 @@ import java.util.Optional;
 
 public class FilteredRangeQuery<K, V> implements CustomQuery<KeyValueIterator<K, V>> {
 
-    private final String jsonPredicate;
+    private final String predicate;
     private final Optional<K> lowerBound;
     private final Optional<K> upperBound;
 
     private final Serde<K> keySerde;
     private final Serde<V> valueSerde;
 
-    private FilteredRangeQuery(final String jsonPredicate,
+    private FilteredRangeQuery(final String predicate,
                               final Optional<K> lowerBound,
                               final Optional<K> upperBound,
                               final Serde<K> keySerde,
                               final Serde<V> valueSerde) {
-        this.jsonPredicate = jsonPredicate;
+        this.predicate = predicate;
         this.lowerBound = lowerBound;
         this.upperBound = upperBound;
         this.keySerde = keySerde;
@@ -40,11 +40,11 @@ public class FilteredRangeQuery<K, V> implements CustomQuery<KeyValueIterator<K,
     }
 
     public FilteredRangeQuery<K,V> serdes(Serde<K> keySerde, Serde<V> valueSerde) {
-        return new FilteredRangeQuery<>(this.jsonPredicate, this.lowerBound, this.upperBound, keySerde, valueSerde);
+        return new FilteredRangeQuery<>(this.predicate, this.lowerBound, this.upperBound, keySerde, valueSerde);
     }
 
     public String predicate() {
-        return jsonPredicate;
+        return predicate;
     }
 
     public Optional<K> lowerBound() {
