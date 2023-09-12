@@ -2,11 +2,15 @@ package io.confluent.developer.store;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
 import com.fasterxml.jackson.annotation.PropertyAccessor;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.protobuf.Descriptors;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.util.JsonFormat;
+import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.JsonPath;
+import com.jayway.jsonpath.TypeRef;
+import com.jayway.jsonpath.spi.json.JacksonJsonNodeJsonProvider;
+import com.jayway.jsonpath.spi.mapper.JacksonMappingProvider;
 import io.confluent.developer.proto.StockTransactionAggregationProto;
 import io.confluent.developer.query.CustomQuery;
 import io.confluent.developer.query.CustomStoreKeyValueIterator;
@@ -27,20 +31,25 @@ import org.apache.kafka.streams.state.KeyValueStore;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Set;
 
 public class CustomQueryStore extends StoreDelegate {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final Configuration jsonPathConfig;
     private final Time time = Time.SYSTEM;
 
     private final JsonFormat.Parser parser = JsonFormat.parser();
+    private final  TypeRef<List<JsonNode>> jsonNodeTypeRef = new TypeRef<>() {};
 
     public CustomQueryStore(KeyValueStore<Bytes, byte[]> delegate) {
         super(delegate);
         objectMapper.setVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY);
+        jsonPathConfig = Configuration.builder()
+                .jsonProvider(new JacksonJsonNodeJsonProvider())
+                .mappingProvider(new JacksonMappingProvider())
+                .build();
     }
 
     @Override
@@ -79,12 +88,14 @@ public class CustomQueryStore extends StoreDelegate {
                 stringBuilder.append(new String(bytesKeyValue.value, StandardCharsets.UTF_8));
             });
 
-            List<String> filteredJsonResults = JsonPath.parse(stringBuilder.toString()).read("$.[?(" + predicate + ")]", List.class);
+            List<JsonNode> filteredJsonResults = JsonPath.using(jsonPathConfig)
+                    .parse(stringBuilder.toString())
+                    .read("$.[?(" + predicate + ")]", jsonNodeTypeRef);
             StockTransactionAggregationProto.Builder builder = StockTransactionAggregationProto.newBuilder();
 
             filteredResults = filteredJsonResults.stream()
-                    .map(json -> {
-                        StockTransactionAggregationProto agg = fromLinkedHashMap(json, builder);
+                    .map(jsonNode -> {
+                        StockTransactionAggregationProto agg = fromJsonNode(jsonNode, builder);
                         return KeyValue.pair(agg.getSymbol(), agg);
                     })
                     .toList();
@@ -117,12 +128,12 @@ public class CustomQueryStore extends StoreDelegate {
 
     }
 
-    private StockTransactionAggregationProto fromLinkedHashMap(final String json, final StockTransactionAggregationProto.Builder builder) {
+    private StockTransactionAggregationProto fromJsonNode(final JsonNode jsonNode, final StockTransactionAggregationProto.Builder builder) {
         try {
 
-             json.forEach((key, value) -> builder.setField());
-             StockTransactionAggregationProto aggregationProto = builder.build();
-             builder.clear();
+            parser.merge(jsonNode.toString(), builder);
+            StockTransactionAggregationProto aggregationProto = builder.build();
+            builder.clear();
             return aggregationProto;
         } catch (InvalidProtocolBufferException e) {
             throw new RuntimeException(e);

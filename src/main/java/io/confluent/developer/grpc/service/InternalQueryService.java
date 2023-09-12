@@ -109,25 +109,19 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
 
     @Override
     public void multiKeyQueryService(MultKeyQueryRequestProto request, StreamObserver<QueryResponseProto> responseObserver) {
-        final MultiKeyQuery<String, StockTransactionAggregation> multiKeyQuery = MultiKeyQuery.<String, StockTransactionAggregation>withKeys(new HashSet<>(request.getSymbolsList()))
+        final MultiKeyQuery<String, StockTransactionAggregationProto> multiKeyQuery = MultiKeyQuery.<String, StockTransactionAggregationProto>withKeys(new HashSet<>(request.getSymbolsList()))
                 .keySerde(Serdes.String())
-                .valueSerde(SerdeUtil.stockTransactionAggregationSerde());
+                .valueSerde(SerdeUtil.stockTransactionAggregationProtoJsonSerde());
         final KeyQueryMetadataProto keyMetadata = request.getKeyQueryMetadata();
         final Set<Integer> partitionSet = Collections.singleton(keyMetadata.getPartition());
-        final StateQueryResult<KeyValueIterator<String, StockTransactionAggregation>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+        final StateQueryResult<KeyValueIterator<String, StockTransactionAggregationProto>> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                 .withQuery(multiKeyQuery)
                 .withPartitions(partitionSet));
-        final QueryResult<KeyValueIterator<String, StockTransactionAggregation>> queryResult = keyQueryResult.getOnlyPartitionResult();
+        final QueryResult<KeyValueIterator<String, StockTransactionAggregationProto>> queryResult = keyQueryResult.getOnlyPartitionResult();
 
-        KeyValueIterator<String, StockTransactionAggregation> aggregations = queryResult.getResult();
+        KeyValueIterator<String, StockTransactionAggregationProto> aggregations = queryResult.getResult();
         List<StockTransactionAggregationProto> aggregationProtos = new ArrayList<>();
-        StockTransactionAggregationProto.Builder builder = StockTransactionAggregationProto.newBuilder();
-        aggregations.forEachRemaining(kv -> {
-             StockTransactionAggregation aggregation = kv.value;
-            aggregationProtos.add(builder.setSymbol(aggregation.getSymbol())
-                    .setBuys(aggregation.getBuys())
-                    .setSells(aggregation.getSells()).build());
-        });
+        aggregations.forEachRemaining(kv -> aggregationProtos.add(kv.value));
         responseObserver.onNext(QueryResponseProto.newBuilder().addAllAggregations(aggregationProtos).build());
         responseObserver.onCompleted();
     }

@@ -161,17 +161,17 @@ public class StockController {
     }
 
     @GetMapping(value = "/keyquery/{symbol}")
-    public QueryResponse<StockTransactionAggregation> getAggregationKeyQuery(@PathVariable String symbol) {
+    public QueryResponse<StockTransactionAggregationProto> getAggregationKeyQuery(@PathVariable String symbol) {
         KeyQueryMetadata keyMetadata = getKeyMetadata(symbol, Serdes.String().serializer());
         if (keyMetadata == null) {
             return QueryResponse.withError(String.format("ERROR: Unable to get key metadata after %d retries", MAX_RETRIES));
         }
         HostInfo activeHost = keyMetadata.activeHost();
         Set<HostInfo> standbyHosts = keyMetadata.standbyHosts();
-        KeyQuery<String, StockTransactionAggregation> keyQuery = KeyQuery.withKey(symbol);
-        QueryResponse<StockTransactionAggregation> queryResponse = doKeyQuery(activeHost, keyQuery, keyMetadata, symbol, HostStatus.ACTIVE);
+        KeyQuery<String, StockTransactionAggregationProto> keyQuery = KeyQuery.withKey(symbol);
+        QueryResponse<StockTransactionAggregationProto> queryResponse = doKeyQuery(activeHost, keyQuery, keyMetadata, symbol, HostStatus.ACTIVE);
         if (queryResponse.hasError() && !standbyHosts.isEmpty()) {
-            Optional<QueryResponse<StockTransactionAggregation>> standbyResponse = standbyHosts.stream()
+            Optional<QueryResponse<StockTransactionAggregationProto>> standbyResponse = standbyHosts.stream()
                     .map(standbyHost -> doKeyQuery(standbyHost, keyQuery, keyMetadata, symbol, HostStatus.STANDBY))
                     .filter(resp -> resp != null && !resp.hasError())
                     .findFirst();
@@ -233,18 +233,18 @@ public class StockController {
     }
 
 
-    private QueryResponse<StockTransactionAggregation> doKeyQuery(final HostInfo targetHostInfo,
-                                               final Query<StockTransactionAggregation> query,
+    private QueryResponse<StockTransactionAggregationProto> doKeyQuery(final HostInfo targetHostInfo,
+                                               final Query<StockTransactionAggregationProto> query,
                                                final KeyQueryMetadata keyMetadata,
                                                final String symbol,
                                                final HostStatus hostStatus) {
-        QueryResponse<StockTransactionAggregation> queryResponse;
+        QueryResponse<StockTransactionAggregationProto> queryResponse;
         if (targetHostInfo.equals(thisHostInfo)) {
             Set<Integer> partitionSet = Collections.singleton(keyMetadata.partition());
-            StateQueryResult<StockTransactionAggregation> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
+            StateQueryResult<StockTransactionAggregationProto> keyQueryResult = kafkaStreams.query(StateQueryRequest.inStore(storeName)
                     .withQuery(query)
                     .withPartitions(partitionSet));
-            QueryResult<StockTransactionAggregation> queryResult = keyQueryResult.getOnlyPartitionResult();
+            QueryResult<StockTransactionAggregationProto> queryResult = keyQueryResult.getOnlyPartitionResult();
             queryResponse = QueryResponse.withResult(queryResult.getResult());
             queryResponse.setHostType(hostStatus.name() + "-" + targetHostInfo.host() + ":" + targetHostInfo.port());
         } else {
