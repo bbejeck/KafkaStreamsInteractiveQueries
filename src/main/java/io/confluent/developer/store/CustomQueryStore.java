@@ -10,7 +10,6 @@ import com.jayway.jsonpath.Configuration;
 import com.jayway.jsonpath.JsonPath;
 import com.jayway.jsonpath.TypeRef;
 import com.jayway.jsonpath.spi.json.JacksonJsonNodeJsonProvider;
-import com.jayway.jsonpath.spi.mapper.JacksonMappingProvider;
 import io.confluent.developer.proto.StockTransactionAggregationProto;
 import io.confluent.developer.query.CustomQuery;
 import io.confluent.developer.query.CustomStoreKeyValueIterator;
@@ -41,14 +40,14 @@ public class CustomQueryStore extends StoreDelegate {
     private final Time time = Time.SYSTEM;
 
     private final JsonFormat.Parser parser = JsonFormat.parser();
-    private final  TypeRef<List<JsonNode>> jsonNodeTypeRef = new TypeRef<>() {};
+    private final  TypeRef<List<KeyValue<String, StockTransactionAggregationProto>>> protoTypeRef = new TypeRef<>() {};
 
     public CustomQueryStore(KeyValueStore<Bytes, byte[]> delegate) {
         super(delegate);
         objectMapper.setVisibility(PropertyAccessor.FIELD, JsonAutoDetect.Visibility.ANY);
         jsonPathConfig = Configuration.builder()
                 .jsonProvider(new JacksonJsonNodeJsonProvider())
-                .mappingProvider(new JacksonMappingProvider())
+                .mappingProvider(new JacksonProtobufMappingProvider())
                 .build();
     }
 
@@ -74,10 +73,8 @@ public class CustomQueryStore extends StoreDelegate {
         FilteredRangeQuery<String, StockTransactionAggregationProto> filteredRangeQuery =
                 (FilteredRangeQuery<String, StockTransactionAggregationProto>) query;
         Serializer<String> keySerializer = filteredRangeQuery.keySerde().serializer();
-        Deserializer<String> keyDeserializer = filteredRangeQuery.keySerde().deserializer();
-        Deserializer<StockTransactionAggregationProto> valueDeserializer = filteredRangeQuery.valueSerde().deserializer();
         String predicate = filteredRangeQuery.predicate();
-        List<KeyValue<String, StockTransactionAggregationProto>> filteredResults = new ArrayList<>();
+
         String lowerBound = filteredRangeQuery.lowerBound().orElse(null);
         String upperBound = filteredRangeQuery.upperBound().orElse(null);
         StringBuilder stringBuilder = new StringBuilder();
@@ -88,19 +85,11 @@ public class CustomQueryStore extends StoreDelegate {
                 stringBuilder.append(new String(bytesKeyValue.value, StandardCharsets.UTF_8));
             });
 
-            List<JsonNode> filteredJsonResults = JsonPath.using(jsonPathConfig)
+            List<KeyValue<String, StockTransactionAggregationProto>> filteredJsonResults = JsonPath.using(jsonPathConfig)
                     .parse(stringBuilder.toString())
-                    .read("$.[?(" + predicate + ")]", jsonNodeTypeRef);
-            StockTransactionAggregationProto.Builder builder = StockTransactionAggregationProto.newBuilder();
+                    .read("$.[?(" + predicate + ")]", protoTypeRef);
 
-            filteredResults = filteredJsonResults.stream()
-                    .map(jsonNode -> {
-                        StockTransactionAggregationProto agg = fromJsonNode(jsonNode, builder);
-                        return KeyValue.pair(agg.getSymbol(), agg);
-                    })
-                    .toList();
-
-            return (QueryResult<R>) QueryResult.forResult(new CustomStoreKeyValueIterator<>(filteredResults.iterator()));
+            return (QueryResult<R>) QueryResult.forResult(new CustomStoreKeyValueIterator<>(filteredJsonResults.iterator()));
         }
     }
 
@@ -127,17 +116,4 @@ public class CustomQueryStore extends StoreDelegate {
         return queryResult;
 
     }
-
-    private StockTransactionAggregationProto fromJsonNode(final JsonNode jsonNode, final StockTransactionAggregationProto.Builder builder) {
-        try {
-
-            parser.merge(jsonNode.toString(), builder);
-            StockTransactionAggregationProto aggregationProto = builder.build();
-            builder.clear();
-            return aggregationProto;
-        } catch (InvalidProtocolBufferException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
 }
