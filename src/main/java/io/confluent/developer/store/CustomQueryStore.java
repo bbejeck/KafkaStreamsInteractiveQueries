@@ -38,8 +38,6 @@ public class CustomQueryStore extends StoreDelegate {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Configuration jsonPathConfig;
     private final Time time = Time.SYSTEM;
-
-    private final JsonFormat.Parser parser = JsonFormat.parser();
     private final  TypeRef<List<KeyValue<String, StockTransactionAggregationProto>>> protoTypeRef = new TypeRef<>() {};
 
     public CustomQueryStore(KeyValueStore<Bytes, byte[]> delegate) {
