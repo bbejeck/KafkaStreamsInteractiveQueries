@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
-import com.google.protobuf.MessageOrBuilder;
 import com.google.protobuf.util.JsonFormat;
 import io.confluent.developer.model.StockTransaction;
 import io.confluent.developer.model.StockTransactionAggregation;
@@ -23,6 +22,7 @@ import org.apache.kafka.streams.state.ValueAndTimestamp;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.function.Supplier;
 
 public class SerdeUtil {
 
@@ -47,7 +47,7 @@ public class SerdeUtil {
 
     public static Serde<StockTransactionAggregationProto> stockTransactionAggregationProtoJsonSerde() {
         return Serdes.serdeFrom(new ProtoAggregationJsonSerializer<>(),
-                new ProtoAggregationDeserializer<>(StockTransactionAggregationProto.newBuilder()));
+                new ProtoAggregationDeserializer<>(StockTransactionAggregationProto::newBuilder));
     }
 
     public static class ValueAndTimestampSerializer implements Serializer<ValueAndTimestamp<JsonNode>> {
@@ -113,20 +113,19 @@ public class SerdeUtil {
     public static class ProtoAggregationDeserializer<T extends Message> implements Deserializer<T> {
         private final JsonFormat.Parser parser = JsonFormat.parser();
 
-        private final Message.Builder builder;
+        private final Supplier<Message.Builder> builderSupplier;
 
-        public ProtoAggregationDeserializer(Message.Builder builder) {
-            this.builder = builder;
+        public ProtoAggregationDeserializer(Supplier<Message.Builder> builderSupplier) {
+            this.builderSupplier = builderSupplier;
         }
 
         @Override
         public T deserialize(String topic, byte[] data) {
             String json = new String(data, StandardCharsets.UTF_8);
             try {
+                Message.Builder builder = builderSupplier.get();
                 parser.merge(json, builder);
-                T obj = (T) builder.build();
-                builder.clear();
-                return obj;
+                return (T) builder.build();
             } catch (InvalidProtocolBufferException e) {
                 throw new RuntimeException(e);
             }

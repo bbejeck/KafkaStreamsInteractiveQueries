@@ -46,8 +46,8 @@
 
         function runIqTables() {
             // Uncomment this to run range queries
-            //getRangeTableData("http://localhost:7076/streams-iq/range")
-            updateKeyTableWithList("http://localhost:7076/streams-iq/keyquery/");
+            getRangeTableData("http://localhost:7076/streams-iq/range")
+            //updateKeyTableWithList("http://localhost:7076/streams-iq/keyquery/");
         }
 
         function getRangeTableData(path) {
@@ -117,7 +117,7 @@
     <h2 id="errorMessage"></h2>
 </div>
 
-<!--   Uncomment to observe range queries in action
+<!--   Uncomment to observe range queries in action  -->
 <div id="rangeDiv">
     <h3 id="rangeHeader">Total Dollar Volume (Range Query)</h3>
     <table id="rangeTable">
@@ -128,8 +128,8 @@
     </table>
 </div>
 <br/>
--->
 
+<!-- Uncomment for key queries
 <div id="keyDiv">
     <h3 id="keyHeader">Total Transactions by Symbol (Key Query)</h3>
     <table id="keyTable">
@@ -140,6 +140,7 @@
         </tr>
     </table>
 </div>
+-->
 
 
 </body>
