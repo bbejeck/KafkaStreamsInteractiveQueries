@@ -56,7 +56,7 @@ public class TestDataProducer {
                             System.out.printf("Produced record offset=%d, partition=%d, ts=%d %n", meta.offset(), meta.partition(), meta.timestamp());
                         }
                         }));
-                    time.sleep(25);
+                    time.sleep(1000);
                 }
             }
     }

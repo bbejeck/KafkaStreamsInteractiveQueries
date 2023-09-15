@@ -75,13 +75,17 @@ public class CustomQueryStore extends StoreDelegate {
 
         String lowerBound = filteredRangeQuery.lowerBound().orElse(null);
         String upperBound = filteredRangeQuery.upperBound().orElse(null);
-        StringBuilder stringBuilder = new StringBuilder();
+        StringBuilder stringBuilder = new StringBuilder("[");
         try (KeyValueIterator<Bytes, byte[]> unfilteredRangeResults = range(Bytes.wrap(keySerializer.serialize(null, lowerBound)),
                 Bytes.wrap(keySerializer.serialize(null, upperBound)))) {
 
             unfilteredRangeResults.forEachRemaining(bytesKeyValue -> {
-                stringBuilder.append(new String(bytesKeyValue.value, StandardCharsets.UTF_8));
+                stringBuilder.append(new String(bytesKeyValue.value, StandardCharsets.UTF_8))
+                        .append(",");
             });
+
+            stringBuilder.setLength(stringBuilder.length() - 1);
+            stringBuilder.append("]");
 
             List<KeyValue<String, StockTransactionAggregationProto>> filteredJsonResults = JsonPath.using(jsonPathConfig)
                     .parse(stringBuilder.toString())
