@@ -38,6 +38,10 @@
             color: #dad55e;
             font-weight: bold;
         }
+
+        .info {
+            text-align: center;
+        }
     </style>
 
     <script type="text/javascript">
@@ -56,6 +60,12 @@
                 updateRangeTable(response, $('#rangeTable'))
                 $('#rangeHeader').addClass('updated')
             });
+        }
+
+        function getFilteredRangeTableData(){
+            let filter =  $('#filter-text').val();
+            let path = "http://localhost:7076/streams-iq/range?filter=" + filter;
+            getRangeTableData(path);
         }
 
         function updateKeyTableWithList(path) {
@@ -104,7 +114,8 @@
             }
         }
 
-        setInterval(runIqTables, 1000);
+        //setInterval(runIqTables, 1000);
+        getRangeTableData("http://localhost:7076/streams-iq/range")
     </script>
 
 </head>
@@ -112,6 +123,13 @@
 <body>
 
 <h2>Kafka Streams IQ Dashboard Application</h2>
+<div id="filter-form">
+    <h3> Enter JsonPath filter</h3>
+</div>
+<form class="info" id="query-filter">
+    <input id='filter-text' name="filter-text" type="text" size=75   style="height: 50px;"/><br><br>
+    <button id="apply-filter" type="button" style="height: 50px; font-size: large" onclick=getFilteredRangeTableData()>Apply Filter</button>
+</form>
 
 <div id="errorDiv" style="display: none">
     <h2 id="errorMessage"></h2>
