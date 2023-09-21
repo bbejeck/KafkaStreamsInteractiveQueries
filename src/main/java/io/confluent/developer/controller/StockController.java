@@ -102,6 +102,7 @@ public class StockController {
 
         Collection<StreamsMetadata> streamsMetadata = kafkaStreams.streamsMetadataForStore(storeName);
         List<StockTransactionAggregationProto> aggregations = new ArrayList<>();
+        StringBuilder hostInformationStringBuilder = new StringBuilder();
 
         streamsMetadata.forEach(streamsClient -> {
             Set<Integer> partitions = getPartitions(streamsClient.topicPartitions());
@@ -112,6 +113,7 @@ public class StockController {
                     upper,
                     filter);
             if (!queryResponse.hasError()) {
+                hostInformationStringBuilder.append(queryResponse.getHostInformation()).append(System.lineSeparator());
                 aggregations.addAll(queryResponse.getResult());
             } else {
                 List<StreamsMetadata> standbys = getStandbyClients(streamsClient, streamsMetadata);
@@ -125,7 +127,7 @@ public class StockController {
             }
 
         });
-        return QueryResponse.withResult(aggregations);
+        return QueryResponse.withResult(aggregations).setHostInformation(hostInformationStringBuilder.toString());
     }
 
     private QueryResponse<List<StockTransactionAggregationProto>> doRangeQuery(final HostInfo targetHostInfo,
@@ -151,11 +153,15 @@ public class StockController {
             StateQueryResult<KeyValueIterator<String, StockTransactionAggregationProto>> result = kafkaStreams.query(queryRequest);
             aggregations.addAll(extractStateQueryResults(result));
             queryResponse = QueryResponse.withResult(aggregations);
+            queryResponse.setHostInformation(HostStatus.ACTIVE + " " + targetHostInfo.host()+":" + targetHostInfo.port() + " number results [" + aggregations.size() +"]");
         } else {
             String host = targetHostInfo.host();
             // By convention all gRPC ports are Kafka Streams host port - 2000
             int port = targetHostInfo.port() - 2000;
-            queryResponse = doRemoteRangeQuery(host, port, partitions, Optional.empty(),lower, upper, predicate);
+            queryResponse = doRemoteRangeQuery(host, port, partitions, Optional.empty(),
+                    Optional.ofNullable(lower),
+                    Optional.ofNullable(upper),
+                    Optional.ofNullable(predicate));
         }
         return queryResponse;
     }
@@ -223,12 +229,12 @@ public class StockController {
                 // By convention all gRPC ports are Kafka Streams host port - 2000
                 int port = targetHostInfo.port() - 2000;
                 queryResponse = doRemoteMultiKeyQuery(host, port, keyMetadata.partition(), symbols);
-                hostList.add(queryResponse.getHostType());
+                hostList.add(queryResponse.getHostInformation());
                 intermediateResults.addAll(queryResponse.getResult());
             }
         });
         QueryResponse<List<StockTransactionAggregationProto>> finalResult = QueryResponse.withResult(intermediateResults);
-        finalResult.setHostType(hostList.toString());
+        finalResult.setHostInformation(hostList.toString());
         return finalResult;
     }
 
@@ -246,7 +252,7 @@ public class StockController {
                     .withPartitions(partitionSet));
             QueryResult<StockTransactionAggregationProto> queryResult = keyQueryResult.getOnlyPartitionResult();
             queryResponse = QueryResponse.withResult(queryResult.getResult());
-            queryResponse.setHostType(hostStatus.name() + "-" + targetHostInfo.host() + ":" + targetHostInfo.port());
+            queryResponse.setHostInformation(hostStatus.name() + "-" + targetHostInfo.host() + ":" + targetHostInfo.port());
         } else {
             String host = targetHostInfo.host();
             // By convention all gRPC ports are Kafka Streams host port - 2000
@@ -260,25 +266,25 @@ public class StockController {
                                                     final int port,
                                                     final Optional<Set<Integer>> partitions,
                                                     final Optional<PositionBound> positionBound,
-                                                    final String lowerBound,
-                                                    final String upperBound,
-                                                    final String predicate) {
+                                                    final Optional<String> lowerBound,
+                                                    final Optional<String> upperBound,
+                                                    final Optional<String> predicate) {
         QueryResponse<V> remoteResponse;
         ManagedChannel channel = null;
         try {
             channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
             InternalQueryGrpc.InternalQueryBlockingStub blockingStub = InternalQueryGrpc.newBlockingStub(channel);
             RangeQueryRequestProto.Builder rangeRequestBuilder = RangeQueryRequestProto.newBuilder()
-                    .setUpper(upperBound)
-                    .setLower(lowerBound)
+                    .setUpper(upperBound.orElse(""))
+                    .setLower(lowerBound.orElse(""))
                     .addAllPartitions(partitions.orElseGet(Collections::emptySet));
-            if(QueryUtils.isNotBlank(predicate)){
-                rangeRequestBuilder.setPredicate(predicate);
+            if(QueryUtils.isNotBlank(predicate.orElse(""))){
+                rangeRequestBuilder.setPredicate(predicate.orElse(""));
             }
 
             QueryResponseProto rangeQueryResponse = blockingStub.rangeQueryService(rangeRequestBuilder.build());
             remoteResponse = (QueryResponse<V>) QueryResponse.withResult(rangeQueryResponse.getAggregationsList());
-            remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
+            remoteResponse.setHostInformation(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port + " number results [" + rangeQueryResponse.getAggregationsList().size() +"]" );
         } catch (StatusRuntimeException exception) {
             remoteResponse = QueryResponse.withError(exception.getMessage());
         } finally {
@@ -312,7 +318,7 @@ public class StockController {
             QueryResponseProto queryResponseProto = blockingStub.keyQueryService(keyQueryRequest);
             StockTransactionAggregationProto aggregationProto = queryResponseProto.getAggregations(0);
             remoteResponse = (QueryResponse<V>) QueryResponse.withResult(aggregationProto);
-            remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
+            remoteResponse.setHostInformation(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
         } catch (StatusRuntimeException exception) {
             remoteResponse = QueryResponse.withError(exception.getMessage());
         } finally {
@@ -337,7 +343,7 @@ public class StockController {
             MultKeyQueryRequestProto multipleRequest = MultKeyQueryRequestProto.newBuilder().addAllSymbols(symbols).setKeyQueryMetadata(keyQueryMetadata).build();
             QueryResponseProto multiKeyResponseProto = blockingStub.multiKeyQueryService(multipleRequest);
             remoteResponse = extractAndConvertRemoteResultList(multiKeyResponseProto);
-            remoteResponse.setHostType(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
+            remoteResponse.setHostInformation(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
         } catch (StatusRuntimeException exception) {
             remoteResponse = QueryResponse.withError(exception.getMessage());
         } finally {

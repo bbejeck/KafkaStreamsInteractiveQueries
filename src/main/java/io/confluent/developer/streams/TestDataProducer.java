@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.Random;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -41,6 +42,7 @@ public class TestDataProducer {
         List<String> baseSymbols = Stream.generate(stockFaker::nsdqSymbol).limit(200).toList();
         List<String> tickerSymbols = new ArrayList<>(baseSymbols);
         tickerSymbols.addAll(keys);
+        AtomicInteger partitionCounter = new AtomicInteger(1);
 
 
             try (KafkaProducer<String, StockTransaction> producer = new KafkaProducer<>(properties)) {
@@ -49,7 +51,7 @@ public class TestDataProducer {
                     tickerSymbols.stream().map(key -> builder.withSymbol(key)
                             .withAmount(numberFaker.randomDouble(2, 1, 5))
                             .withBuy(booleanFaker.bool())
-                            .build()).forEach(transaction -> producer.send(new ProducerRecord<>("input", transaction.getSymbol(), transaction), (meta, e) -> {
+                            .build()).forEach(transaction -> producer.send(new ProducerRecord<>("input", partitionCounter.incrementAndGet() % 2, transaction.getSymbol(), transaction), (meta, e) -> {
                         if (e != null) {
                             System.out.printf("Error producing %s %n", e);
                         } else {

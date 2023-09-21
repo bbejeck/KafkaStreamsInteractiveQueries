@@ -10,7 +10,7 @@ public class QueryResponse <T> {
     private  T result;
     private Map<String, Set<String>> executionInfo;
 
-    private String hostType = "NOT SET";
+    private String hostInformation = "NOT SET";
 
     public QueryResponse() {
     }
@@ -33,8 +33,8 @@ public class QueryResponse <T> {
         return this;
     }
 
-    public QueryResponse<T> setHostType(String hostType) {
-        this.hostType = hostType;
+    public QueryResponse<T> setHostInformation(String hostInformation) {
+        this.hostInformation = hostInformation;
         return this;
     }
 
@@ -42,8 +42,8 @@ public class QueryResponse <T> {
         return errorMessage != null;
     }
 
-    public String getHostType() {
-        return hostType;
+    public String getHostInformation() {
+        return hostInformation;
     }
     public String getErrorMessage() {
         return errorMessage;
@@ -63,7 +63,7 @@ public class QueryResponse <T> {
                 "errorMessage='" + errorMessage + '\'' +
                 ", result=" + result +
                 ", executionInfo=" + executionInfo +
-                ", hostType='" + hostType + '\'' +
+                ", hostType='" + hostInformation + '\'' +
                 '}';
     }
 }

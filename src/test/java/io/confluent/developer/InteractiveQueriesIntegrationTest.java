@@ -121,14 +121,14 @@ class InteractiveQueriesIntegrationTest {
 
             QueryResponse<Map> appOneResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_ONE);
             assertThat(appOneResult.getResult().get("symbol"), is(SYMBOL_ONE));
-            assertThat(appOneResult.getHostType(), containsString("ACTIVE"));
+            assertThat(appOneResult.getHostInformation(), containsString("ACTIVE"));
 
             QueryResponse<Map> appTwoResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_TWO);
             assertThat(appTwoResult.getResult().get("symbol"), is(SYMBOL_TWO));
-            assertThat(appTwoResult.getHostType(), containsString("ACTIVE"));
+            assertThat(appTwoResult.getHostInformation(), containsString("ACTIVE"));
 
-            String appOneHostCheck = appOneResult.getHostType().toLowerCase().contains("grcp") ? "STANDBY" : "ACTIVE";
-            String appTwoHostCheck = appTwoResult.getHostType().toLowerCase().contains("grcp") ? "ACTIVE" : "STANDBY";
+            String appOneHostCheck = appOneResult.getHostInformation().toLowerCase().contains("grcp") ? "STANDBY" : "ACTIVE";
+            String appTwoHostCheck = appTwoResult.getHostInformation().toLowerCase().contains("grcp") ? "ACTIVE" : "STANDBY";
 
             contextTwo.close();
             while (contextTwo.isRunning()) {
@@ -140,13 +140,13 @@ class InteractiveQueriesIntegrationTest {
             appOneResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_ONE);
             assertThat(appOneResult.getResult().get("symbol"), is(SYMBOL_ONE));
 
-            assertThat(appOneResult.getHostType(), containsString(appOneHostCheck));
-            assertThat(appOneResult.getHostType(), containsString(Integer.toString(APP_ONE_PORT)));
+            assertThat(appOneResult.getHostInformation(), containsString(appOneHostCheck));
+            assertThat(appOneResult.getHostInformation(), containsString(Integer.toString(APP_ONE_PORT)));
 
             appTwoResult = queryForSingleResult(APP_ONE_PORT, "streams-iq/keyquery/" + SYMBOL_TWO);
             assertThat(appTwoResult.getResult().get("symbol"), is(SYMBOL_TWO));
-            assertThat(appTwoResult.getHostType(), containsString(appTwoHostCheck));
-            assertThat(appTwoResult.getHostType(), containsString(Integer.toString(APP_ONE_PORT)));
+            assertThat(appTwoResult.getHostInformation(), containsString(appTwoHostCheck));
+            assertThat(appTwoResult.getHostInformation(), containsString(Integer.toString(APP_ONE_PORT)));
 
         } finally {
             contextOne.close();
@@ -194,7 +194,7 @@ class InteractiveQueriesIntegrationTest {
         try {
             QueryResponse<Map> appOneResult = queryForSingleResult(portToSet, "streams-iq/keyquery/" + SYMBOL_TWO);
             assertThat(appOneResult.getResult().get("symbol"), is(SYMBOL_TWO));
-            assertThat(appOneResult.getHostType(), containsString("ACTIVE_GRPC"));
+            assertThat(appOneResult.getHostInformation(), containsString("ACTIVE_GRPC"));
         } finally {
             contextOne.close();
             if (contextTwo.isRunning()) {
