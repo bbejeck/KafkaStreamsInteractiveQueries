@@ -1,6 +1,5 @@
 package io.confluent.developer.grpc.service;
 
-import io.confluent.developer.model.StockTransactionAggregation;
 import io.confluent.developer.proto.InternalQueryGrpc;
 import io.confluent.developer.proto.KeyQueryMetadataProto;
 import io.confluent.developer.proto.KeyQueryRequestProto;
@@ -89,20 +88,10 @@ public class InternalQueryService extends InternalQueryGrpc.InternalQueryImplBas
         final Map<Integer, QueryResult<KeyValueIterator<String, StockTransactionAggregationProto>>> allPartitionResults = keyQueryResult.getPartitionResults();
 
         final QueryResponseProto.Builder repsonseBuilder = QueryResponseProto.newBuilder();
-
-        List<StockTransactionAggregationProto> remoteRangeResults = new ArrayList<>();
-        StockTransactionAggregationProto.Builder builder = StockTransactionAggregationProto.newBuilder();
-        allPartitionResults.forEach((k, v) -> {
-            var keyValues = v.getResult();
-            keyValues.forEachRemaining(kv -> {
-                               builder.setSymbol(kv.value.getSymbol())
-                                .setBuys(kv.value.getBuys())
-                                        .setSells(kv.value.getSells());
-
-                remoteRangeResults.add(builder.build());
-            });
-        });
-        repsonseBuilder.addAllAggregations(remoteRangeResults);
+        allPartitionResults.forEach((k, v) -> v.getResult().forEachRemaining(kv -> repsonseBuilder.addAggregations(kv.value)));
+        if (repsonseBuilder.getAggregationsBuilderList() == null) {
+            repsonseBuilder.addAllAggregations(new ArrayList<>());
+        }
         responseObserver.onNext(repsonseBuilder.build());
         responseObserver.onCompleted();
     }

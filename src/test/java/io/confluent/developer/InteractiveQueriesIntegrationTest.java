@@ -2,6 +2,7 @@ package io.confluent.developer;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.confluent.developer.controller.StockController;
 import io.confluent.developer.model.StockTransaction;
 import io.confluent.developer.model.StockTransactionAggregation;
 import io.confluent.developer.query.QueryResponse;
@@ -194,7 +195,7 @@ class InteractiveQueriesIntegrationTest {
         try {
             QueryResponse<Map> appOneResult = queryForSingleResult(portToSet, "streams-iq/keyquery/" + SYMBOL_TWO);
             assertThat(appOneResult.getResult().get("symbol"), is(SYMBOL_TWO));
-            assertThat(appOneResult.getHostInformation(), containsString("ACTIVE_GRPC"));
+            assertThat(appOneResult.getHostInformation(), containsString(StockController.HostStatus.GRPC_ACTIVE.toString()));
         } finally {
             contextOne.close();
             if (contextTwo.isRunning()) {

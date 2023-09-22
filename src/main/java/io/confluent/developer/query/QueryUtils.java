@@ -29,7 +29,10 @@ public class QueryUtils {
     }
 
     public static FilteredRangeQuery<String, StockTransactionAggregationProto> createFilteredRangeQuery(String lower, String upper, String jsonPredicate) {
-        return FilteredRangeQuery.<String, StockTransactionAggregationProto>withBounds(lower, upper)
+        // Because protobuf won't have null fields
+        String lowerBound = isNotBlank(lower) ? lower : null;
+        String upperBound = isNotBlank(upper) ? upper : null;
+        return FilteredRangeQuery.<String, StockTransactionAggregationProto>withBounds(lowerBound, upperBound)
                 .predicate(jsonPredicate)
                 .serdes(Serdes.String(), SerdeUtil.stockTransactionAggregationProtoJsonSerde());
     }

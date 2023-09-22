@@ -91,6 +91,7 @@ public class KafkaStreamsAppConfiguration {
         streamsConfigs.put(StreamsConfig.APPLICATION_ID_CONFIG, applicationId);
         streamsConfigs.put(StreamsConfig.STATESTORE_CACHE_MAX_BYTES_CONFIG, cacheConfig);
         streamsConfigs.put(StreamsConfig.APPLICATION_SERVER_CONFIG, applicationServer);
+        streamsConfigs.put(StreamsConfig.METRICS_RECORDING_LEVEL_CONFIG, "TRACE");
         // This is set intentionally higher than normal to facilitate the demo we don't want
         // a rebalance to occur and reassign the standby to active too soon
         streamsConfigs.put(StreamsConfig.consumerPrefix(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG), 60 * 1000);

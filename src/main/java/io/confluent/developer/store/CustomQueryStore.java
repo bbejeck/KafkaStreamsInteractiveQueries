@@ -83,8 +83,9 @@ public class CustomQueryStore extends StoreDelegate {
                 stringBuilder.append(new String(bytesKeyValue.value, StandardCharsets.UTF_8))
                         .append(",");
             });
-
-            stringBuilder.setLength(stringBuilder.length() - 1);
+            if (stringBuilder.length() > 1) {
+                stringBuilder.setLength(stringBuilder.length() - 1);
+            }
             stringBuilder.append("]");
 
             List<KeyValue<String, StockTransactionAggregationProto>> filteredJsonResults = JsonPath.using(jsonPathConfig)

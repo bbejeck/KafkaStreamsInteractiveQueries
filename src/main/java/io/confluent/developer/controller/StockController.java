@@ -75,10 +75,14 @@ public class StockController {
     private static final int MAX_RETRIES = 3;
     private static final Time time = Time.SYSTEM;
 
-    private enum HostStatus {
-        ACTIVE,
-        STANDBY,
-        ACTIVE_GRPC
+    private static final boolean IS_STANDBY = true;
+    private static final boolean IS_ACTIVE = false;
+
+    public enum HostStatus {
+        LOCAL_ACTIVE,
+        LOCAL_STANDBY,
+        GRPC_ACTIVE,
+        GRPC_STANDBY
     }
 
     @Autowired
@@ -111,19 +115,23 @@ public class StockController {
                     Optional.empty(),
                     lower,
                     upper,
-                    filter);
+                    filter,
+                    IS_ACTIVE);
             if (!queryResponse.hasError()) {
-                hostInformationStringBuilder.append(queryResponse.getHostInformation()).append(System.lineSeparator());
+                hostInformationStringBuilder.append(queryResponse.getHostInformation()).append(", ");
                 aggregations.addAll(queryResponse.getResult());
             } else {
                 List<StreamsMetadata> standbys = getStandbyClients(streamsClient, streamsMetadata);
                 Optional<QueryResponse<List<StockTransactionAggregationProto>>> standbyResponse = standbys.stream().map(standby -> {
                             Set<TopicPartition> standbyTopicPartitions = getStandbyTopicPartitions(streamsClient, standby);
                             Set<Integer> standbyPartitions = getPartitions(standbyTopicPartitions);
-                            return doRangeQuery(standby.hostInfo(), Optional.of(standbyPartitions), Optional.empty(), lower, upper, filter);
+                            return  doRangeQuery(standby.hostInfo(), Optional.of(standbyPartitions), Optional.empty(), lower, upper, filter, IS_STANDBY);
                         }).filter(Objects::nonNull)
                         .findFirst();
-                standbyResponse.ifPresent(listQueryResponse -> aggregations.addAll(listQueryResponse.getResult()));
+                standbyResponse.ifPresent(listQueryResponse -> {
+                    hostInformationStringBuilder.append(listQueryResponse.getHostInformation()).append(", ");
+                    aggregations.addAll(listQueryResponse.getResult());
+                });
             }
 
         });
@@ -131,11 +139,12 @@ public class StockController {
     }
 
     private QueryResponse<List<StockTransactionAggregationProto>> doRangeQuery(final HostInfo targetHostInfo,
-                                                       final Optional<Set<Integer>> partitions,
-                                                       final Optional<PositionBound> positionBound,
-                                                       final String lower,
-                                                       final String upper,
-                                                       final String predicate) {
+                                                                               final Optional<Set<Integer>> partitions,
+                                                                               final Optional<PositionBound> positionBound,
+                                                                               final String lower,
+                                                                               final String upper,
+                                                                               final String predicate,
+                                                                               final boolean isStandBy) {
 
         Query<KeyValueIterator<String,StockTransactionAggregationProto>> rangeQuery = QueryUtils.createRangeQuery(lower, upper, predicate);
 
@@ -153,15 +162,23 @@ public class StockController {
             StateQueryResult<KeyValueIterator<String, StockTransactionAggregationProto>> result = kafkaStreams.query(queryRequest);
             aggregations.addAll(extractStateQueryResults(result));
             queryResponse = QueryResponse.withResult(aggregations);
-            queryResponse.setHostInformation(HostStatus.ACTIVE + " " + targetHostInfo.host()+":" + targetHostInfo.port() + " number results [" + aggregations.size() +"]");
+            HostStatus hostStatus = isStandBy ? HostStatus.LOCAL_STANDBY : HostStatus.LOCAL_ACTIVE;
+            String hostInfo = String.format("Status[%s] %s:%d results[%d]", hostStatus, targetHostInfo.host(), targetHostInfo.port(), aggregations.size());
+            queryResponse.setHostInformation(hostInfo);
         } else {
             String host = targetHostInfo.host();
             // By convention all gRPC ports are Kafka Streams host port - 2000
-            int port = targetHostInfo.port() - 2000;
-            queryResponse = doRemoteRangeQuery(host, port, partitions, Optional.empty(),
+            int grpcPort = targetHostInfo.port() - 2000;
+            queryResponse = doRemoteRangeQuery(host, grpcPort, partitions, Optional.empty(),
                     Optional.ofNullable(lower),
                     Optional.ofNullable(upper),
                     Optional.ofNullable(predicate));
+
+            HostStatus hostStatus = isStandBy ? HostStatus.GRPC_STANDBY : HostStatus.GRPC_ACTIVE;
+            if (!queryResponse.hasError()) {
+                String hostInfo = String.format("Status[%s] %s:%d results[%d]", hostStatus, targetHostInfo.host(), grpcPort, queryResponse.getResult().size());
+                queryResponse.setHostInformation(hostInfo);
+            }
         }
         return queryResponse;
     }
@@ -175,10 +192,10 @@ public class StockController {
         HostInfo activeHost = keyMetadata.activeHost();
         Set<HostInfo> standbyHosts = keyMetadata.standbyHosts();
         KeyQuery<String, StockTransactionAggregationProto> keyQuery = KeyQuery.withKey(symbol);
-        QueryResponse<StockTransactionAggregationProto> queryResponse = doKeyQuery(activeHost, keyQuery, keyMetadata, symbol, HostStatus.ACTIVE);
+        QueryResponse<StockTransactionAggregationProto> queryResponse = doKeyQuery(activeHost, keyQuery, keyMetadata, symbol, HostStatus.LOCAL_ACTIVE);
         if (queryResponse.hasError() && !standbyHosts.isEmpty()) {
             Optional<QueryResponse<StockTransactionAggregationProto>> standbyResponse = standbyHosts.stream()
-                    .map(standbyHost -> doKeyQuery(standbyHost, keyQuery, keyMetadata, symbol, HostStatus.STANDBY))
+                    .map(standbyHost -> doKeyQuery(standbyHost, keyQuery, keyMetadata, symbol, HostStatus.LOCAL_STANDBY))
                     .filter(resp -> resp != null && !resp.hasError())
                     .findFirst();
             if (standbyResponse.isPresent()) {
@@ -277,14 +294,11 @@ public class StockController {
             RangeQueryRequestProto.Builder rangeRequestBuilder = RangeQueryRequestProto.newBuilder()
                     .setUpper(upperBound.orElse(""))
                     .setLower(lowerBound.orElse(""))
+                    .setPredicate(predicate.orElse(""))
                     .addAllPartitions(partitions.orElseGet(Collections::emptySet));
-            if(QueryUtils.isNotBlank(predicate.orElse(""))){
-                rangeRequestBuilder.setPredicate(predicate.orElse(""));
-            }
 
             QueryResponseProto rangeQueryResponse = blockingStub.rangeQueryService(rangeRequestBuilder.build());
             remoteResponse = (QueryResponse<V>) QueryResponse.withResult(rangeQueryResponse.getAggregationsList());
-            remoteResponse.setHostInformation(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port + " number results [" + rangeQueryResponse.getAggregationsList().size() +"]" );
         } catch (StatusRuntimeException exception) {
             remoteResponse = QueryResponse.withError(exception.getMessage());
         } finally {
@@ -318,7 +332,7 @@ public class StockController {
             QueryResponseProto queryResponseProto = blockingStub.keyQueryService(keyQueryRequest);
             StockTransactionAggregationProto aggregationProto = queryResponseProto.getAggregations(0);
             remoteResponse = (QueryResponse<V>) QueryResponse.withResult(aggregationProto);
-            remoteResponse.setHostInformation(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
+            remoteResponse.setHostInformation(HostStatus.GRPC_ACTIVE + "-" + host + ":" + port);
         } catch (StatusRuntimeException exception) {
             remoteResponse = QueryResponse.withError(exception.getMessage());
         } finally {
@@ -343,7 +357,7 @@ public class StockController {
             MultKeyQueryRequestProto multipleRequest = MultKeyQueryRequestProto.newBuilder().addAllSymbols(symbols).setKeyQueryMetadata(keyQueryMetadata).build();
             QueryResponseProto multiKeyResponseProto = blockingStub.multiKeyQueryService(multipleRequest);
             remoteResponse = extractAndConvertRemoteResultList(multiKeyResponseProto);
-            remoteResponse.setHostInformation(HostStatus.ACTIVE_GRPC + "-" + host + ":" + port);
+            remoteResponse.setHostInformation(HostStatus.GRPC_ACTIVE + "-" + host + ":" + port);
         } catch (StatusRuntimeException exception) {
             remoteResponse = QueryResponse.withError(exception.getMessage());
         } finally {
