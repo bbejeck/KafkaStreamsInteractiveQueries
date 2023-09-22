@@ -310,13 +310,6 @@ public class StockController {
         return remoteResponse;
     }
 
-    private <V> QueryResponse<V> extractAndConvertRemoteResultList(QueryResponseProto remoteResponseProto) {
-        return (QueryResponse<V>)QueryResponse.withResult(remoteResponseProto.getAggregationsList()
-                .stream()
-                .map(proto -> new StockTransactionAggregation(proto.getSymbol(), proto.getBuys(), proto.getSells())).toList());
-
-    }
-
     private <V> QueryResponse<V> doRemoteKeyQuery(final String host,
                                                   final int port,
                                                   final int partition,
@@ -356,7 +349,7 @@ public class StockController {
 
             MultKeyQueryRequestProto multipleRequest = MultKeyQueryRequestProto.newBuilder().addAllSymbols(symbols).setKeyQueryMetadata(keyQueryMetadata).build();
             QueryResponseProto multiKeyResponseProto = blockingStub.multiKeyQueryService(multipleRequest);
-            remoteResponse = extractAndConvertRemoteResultList(multiKeyResponseProto);
+            remoteResponse = (QueryResponse<V>) QueryResponse.withResult(multiKeyResponseProto.getAggregationsList());
             remoteResponse.setHostInformation(HostStatus.GRPC_ACTIVE + "-" + host + ":" + port);
         } catch (StatusRuntimeException exception) {
             remoteResponse = QueryResponse.withError(exception.getMessage());
