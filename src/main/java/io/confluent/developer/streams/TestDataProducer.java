@@ -58,7 +58,7 @@ public class TestDataProducer {
                                         .withAmount(numberFaker.randomDouble(2, 1, 5))
                                     .withBuy(booleanFaker.bool());
                             if (randomKeys.contains(key)) {
-                                builder.withNumberShares(numberFaker.numberBetween(5000, 15000));
+                                builder.withNumberShares(numberFaker.numberBetween(8000, 15000));
                                 if (produceCount.get() <= 7) {
                                     builder.withBuy(true);
                                 }
