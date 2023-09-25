@@ -36,10 +36,18 @@ message RangeQueryRequestProto {
   repeated int32 partitions = 4;
 }
 
+message StockTransaction {
+  string symbol = 1;
+  bool is_buy = 2;
+  double amount = 3;
+  int32 number_shares = 4;
+}
+
 message StockTransactionAggregationProto {
    string symbol = 1;
    double buys = 2;
    double sells = 3;
+   int32 number_shares = 4;
 }
 
 message QueryResponseProto {

@@ -1,3 +1,5 @@
+number.iterations=50
+
 # Required connection configs for Kafka producer, consumer, and admin
 bootstrap.servers=
 security.protocol=SASL_SSL

@@ -67,6 +67,8 @@ public class KafkaStreamsService {
         } else {
             builder.setSells(value.getAmount() + builder.getSells());
         }
+        builder.setNumberShares(value.getNumberShares() + builder.getNumberShares());
+        
         builder.setSymbol(value.getSymbol());
         return builder.build();
     };

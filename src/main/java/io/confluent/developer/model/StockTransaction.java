@@ -5,11 +5,25 @@ public class StockTransaction {
     private boolean buy;
     private double amount;
 
+    private int numberShares;
+
     public StockTransaction() {}
-    public StockTransaction(String symbol, boolean buy, double amount) {
+    public StockTransaction(String symbol,
+                            boolean buy,
+                            double amount,
+                            int numberShares) {
         this.symbol = symbol;
         this.buy = buy;
         this.amount = amount;
+        this.numberShares = numberShares;
+    }
+
+    public int getNumberShares() {
+        return numberShares;
+    }
+
+    public void setNumberShares(int numberShares) {
+        this.numberShares = numberShares;
     }
 
     public void setSymbol(String symbol) {
@@ -62,6 +76,8 @@ public class StockTransaction {
         private boolean isBuy;
         private double amount;
 
+        private int numberShares;
+
         private StockTransactionBuilder() {
         }
 
@@ -84,8 +100,13 @@ public class StockTransaction {
             return this;
         }
 
+        public StockTransactionBuilder withNumberShares(int numberShares) {
+            this.numberShares = numberShares;
+            return this;
+        }
+
         public StockTransaction build() {
-            return new StockTransaction(symbol, isBuy, amount);
+            return new StockTransaction(symbol, isBuy, amount, numberShares);
         }
     }
 }

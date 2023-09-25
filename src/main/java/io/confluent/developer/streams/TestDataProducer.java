@@ -18,15 +18,13 @@ import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
-import java.util.Random;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class TestDataProducer {
     public static void main(String[] args) throws Exception {
         Properties properties = new Properties();
-        try(InputStreamReader inputStreamReader = new InputStreamReader( new FileInputStream("src/main/resources/confluent.properties")) ) {
+        try (InputStreamReader inputStreamReader = new InputStreamReader(new FileInputStream("src/main/resources/confluent.properties"))) {
             properties.load(inputStreamReader);
         }
         Time time = Time.SYSTEM;
@@ -38,28 +36,48 @@ public class TestDataProducer {
         Number numberFaker = faker.number();
         Bool booleanFaker = faker.bool();
         List<String> keys = List.of("CFLT", "ZELK");
+        int numberIterations = Integer.parseInt(properties.getProperty("number.iterations", Integer.toString(1000)));
+        AtomicInteger produceCount = new AtomicInteger(0);
+        List<String> randomKeys = new ArrayList<>();
 
         List<String> baseSymbols = Stream.generate(stockFaker::nsdqSymbol).limit(200).toList();
         List<String> tickerSymbols = new ArrayList<>(baseSymbols);
         tickerSymbols.addAll(keys);
         AtomicInteger partitionCounter = new AtomicInteger(1);
 
+        for (int i = 0; i < 4; i++) {
+            randomKeys.add(tickerSymbols.get(numberFaker.numberBetween(0, tickerSymbols.size())));
+        }
 
-            try (KafkaProducer<String, StockTransaction> producer = new KafkaProducer<>(properties)) {
-                while (true) {
-                    StockTransactionBuilder builder = StockTransactionBuilder.builder();
-                    tickerSymbols.stream().map(key -> builder.withSymbol(key)
-                            .withAmount(numberFaker.randomDouble(2, 1, 5))
-                            .withBuy(booleanFaker.bool())
-                            .build()).forEach(transaction -> producer.send(new ProducerRecord<>("input", partitionCounter.incrementAndGet() % 2, transaction.getSymbol(), transaction), (meta, e) -> {
-                        if (e != null) {
-                            System.out.printf("Error producing %s %n", e);
-                        } else {
-                            System.out.printf("Produced record offset=%d, partition=%d, ts=%d %n", meta.offset(), meta.partition(), meta.timestamp());
+
+        try (KafkaProducer<String, StockTransaction> producer = new KafkaProducer<>(properties)) {
+            while (produceCount.getAndIncrement() < numberIterations) {
+                StockTransactionBuilder builder = StockTransactionBuilder.builder();
+                tickerSymbols.stream().map(key -> {
+                            builder.withSymbol(key)
+                                        .withAmount(numberFaker.randomDouble(2, 1, 5))
+                                    .withBuy(booleanFaker.bool());
+                            if (randomKeys.contains(key)) {
+                                builder.withNumberShares(numberFaker.numberBetween(5000, 15000));
+                                if (produceCount.get() <= 7) {
+                                    builder.withBuy(true);
+                                }
+                            } else {
+                                builder.withNumberShares(numberFaker.numberBetween(1000, 3000));
+                            }
+                        return  builder.build();
                         }
-                        }));
-                    time.sleep(1000);
-                }
+                ).forEach(transaction -> producer.send(new ProducerRecord<>("input", partitionCounter.incrementAndGet() % 2, transaction.getSymbol(), transaction), (meta, e) -> {
+                            if (e != null) {
+                                System.out.printf("Error producing %s %n", e);
+                            } else {
+                                System.out.printf("Produced record offset=%d, partition=%d, ts=%d %n", meta.offset(), meta.partition(), meta.timestamp());
+                            }
+                        })
+                );
+                time.sleep(1000);
             }
+        }
+        System.out.printf("Produce count of [%d] reached quitting now%n", produceCount.get());
     }
 }
